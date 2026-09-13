@@ -196,7 +196,10 @@ class SettingsPanel(CardPanel):
     def _on_zoom(self, v: int) -> None:
         self.zoom_val.setText(f"{v}%")
         self.cfg.zoom = v / 100.0
-        self.pet.apply_zoom()
+        # 必须走 set_zoom 同步 pet.zoom（apply_zoom 读的是 pet.zoom），
+        # 之前只改 cfg 导致滑块动了蛐蛐没反应，改完也没保存
+        self.pet.set_zoom(v / 100.0)
+        self.cfg.save()
 
     def _on_bar(self, state: int) -> None:
         self.cfg.show_bar = bool(state)

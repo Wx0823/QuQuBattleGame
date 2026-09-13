@@ -36,7 +36,9 @@ from settings import Settings, SettingsPanel
 from stats import StatsDB
 
 # 基准尺寸，实际显示尺寸 = 基准 × 缩放（设置面板可调）
-WIN_W, WIN_H = 190, 208
+# 顶部多留 TOP_PAD：经验飘字往上升，没这块会被 setMask 裁掉上半截
+WIN_W, WIN_H = 190, 224
+TOP_PAD = 16
 CX = 98.0
 FOOT_Y = 155.0
 SCALE = 1.3
@@ -63,7 +65,6 @@ class Bridge(QObject):
 
     key = Signal()
     press = Signal()
-    release = Signal()
 
 
 class Pet(QWidget):
@@ -133,17 +134,22 @@ class Pet(QWidget):
         self._update_mask()
 
     def _update_mask(self) -> None:
-        """只在蛐蛐本体与经验条的位置接收鼠标事件。
+        """只在蛐蛐本体、飘字区与经验条的位置接收鼠标事件并渲染。
 
         mask 之外（窗口的透明区域）事件照旧穿透到桌面，不挡图标；
         mask 之内事件归窗口，右键不会再漏给系统菜单。
         """
         f = self.zoom
-        # 蛐蛐绘制范围：本地 x∈[-45,63]、y∈[-55,22]，再按 SCALE 与脚底位置换算
-        region = QRegion(int(34 * f), int(36 * f), int(150 * f), int(126 * f))
+        # 飘字带：从窗口顶到蛐蛐头顶，保证 "+12" 这类数字完整显示
+        region = QRegion(int(16 * f), 0, int(164 * f), int(70 * f))
+        # 蛐蛐本体（y 已含 TOP_PAD 偏移）
+        region = region.united(
+            QRegion(int(34 * f), int((36 + TOP_PAD) * f),
+                    int(150 * f), int(126 * f)))
         if self.settings.show_bar:
             region = region.united(
-                QRegion(int(24 * f), int(162 * f), int(142 * f), int(46 * f)))
+                QRegion(int(24 * f), int((162 + TOP_PAD) * f),
+                        int(142 * f), int(46 * f)))
         self.setMask(region)
 
     def apply_zoom(self) -> None:
@@ -180,10 +186,10 @@ class Pet(QWidget):
         self.bridge = Bridge()
         self.bridge.key.connect(self._on_key)
         self.bridge.press.connect(self._on_press)
-        self.bridge.release.connect(self._on_release)
         # 注意：右键菜单不走全局钩子 —— 钩子在“按下”瞬间就弹菜单，
         # 随后的“抬起”会被菜单窗口当作外部点击，菜单一闪而过。
         # 右键统一由 Qt 的 mousePress/Release 事件对处理，抬起时再弹。
+        # 左键拖动同理不走全局钩子（见 _on_press 注释），只保留加经验。
 
         self.kb = keyboard.Listener(on_press=self._hook_key)
         self.ms = mouse.Listener(on_click=self._hook_click)
@@ -257,9 +263,9 @@ class Pet(QWidget):
         self.bridge.key.emit()
 
     def _hook_click(self, x, y, button, pressed) -> None:
-        # 只关心左键（加经验）；右键菜单由 Qt 事件处理，见 _init_hook
-        if button == mouse.Button.left:
-            self.bridge.press.emit() if pressed else self.bridge.release.emit()
+        # 只关心左键按下（加经验）；右键菜单与拖动都由 Qt 事件处理，见 _init_hook
+        if button == mouse.Button.left and pressed:
+            self.bridge.press.emit()
 
     # ---------- 主线程槽 ----------
 
@@ -267,17 +273,11 @@ class Pet(QWidget):
         self._add_xp(XP_PER_KEY)
 
     def _on_press(self) -> None:
-        pos = QCursor.pos()
-        if self.geometry().contains(pos):
-            self._dragging = True
-            self._offset = pos - self.pos()
+        # 全局钩子只负责加经验。拖动一律走 Qt 的 mousePressEvent（mask 内才算抓住蛐蛐）。
+        # 以前这里按“光标在窗口矩形内”就开拖 —— 窗口大片透明区也会中招：
+        # 看着点的是桌面/面板旁边，实际点在隐形窗口上，蛐蛐开始追着鼠标跑，
+        # 面板也收不到点击。这就是“面板无法操作、鼠标靠近面板蛐蛐乱跑”的根因。
         self._add_xp(XP_PER_CLICK)
-
-    def _on_release(self) -> None:
-        if self._dragging:
-            self._dragging = False
-            self._clamp_into_screen()
-            self.save()
 
     def _add_xp(self, n: int) -> None:
         self.xp += n
@@ -302,8 +302,11 @@ class Pet(QWidget):
         dt = 0.016
         self.cricket.update(dt)
 
-        if self._dragging and self._offset is not None:
-            self.move(QCursor.pos() - self._offset)
+        # 保险：拖动状态里左键已经物理松开（release 被弹窗吃掉等极端情况）
+        # 就自动复位，避免蛐蛐永久追着鼠标跑
+        if self._dragging and not (QApplication.mouseButtons()
+                                   & Qt.MouseButton.LeftButton):
+            self._dragging = False
 
         # 经验飘字每 260ms 汇总冒一次，避免打字时刷屏
         self._pending_t += dt
@@ -336,6 +339,8 @@ class Pet(QWidget):
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # 整体下移 TOP_PAD，给顶部飘字留出渲染空间（mask 同步扩过）
+        p.translate(0, TOP_PAD * self.zoom)
 
         f = self.zoom
 
@@ -409,13 +414,13 @@ class Pet(QWidget):
         event.accept()
 
     def mousePressEvent(self, event) -> None:
-        """左键按下：显式 grabMouse 捕获鼠标，后续消息全归本窗口。
+        """左键按下：开始拖动。
 
-        桌面看不到 LBUTTONDOWN，自然也就不会拉选区。
+        按下落在 mask（蛐蛐本体）内时窗口会拿到系统级鼠标捕获，
+        拖动期间消息全归本窗口，桌面不会拉选区。
         右键只记录“已按下”，抬起时才弹菜单（Windows 惯例）。
         """
         if event.button() == Qt.MouseButton.LeftButton:
-            self.grabMouse()
             self._dragging = True
             self._offset = event.globalPosition().toPoint() - self.pos()
             event.accept()
@@ -436,7 +441,6 @@ class Pet(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if (event.button() == Qt.MouseButton.LeftButton
                 and self._dragging):
-            self.releaseMouse()
             self._dragging = False
             self._clamp_into_screen()
             self.save()
