@@ -170,12 +170,16 @@ class Pet(QWidget):
         self.tray = QSystemTrayIcon(_make_icon(), self)
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
+        act_fight = QAction("发起对战", self)
+        act_fight.triggered.connect(self._open_arena)
         act_attr = QAction("蛐蛐属性", self)
         act_attr.triggered.connect(self._toggle_panel)
         act_cfg = QAction("蛐蛐设置", self)
         act_cfg.triggered.connect(self._toggle_settings)
         act_quit = QAction("退出游戏", self)
         act_quit.triggered.connect(self._quit)
+        menu.addAction(act_fight)
+        menu.addSeparator()
         menu.addAction(act_attr)
         menu.addAction(act_cfg)
         menu.addSeparator()
@@ -476,17 +480,30 @@ class Pet(QWidget):
         self._menu_t = now
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
+        act_fight = QAction("发起对战", self)
+        act_fight.triggered.connect(self._open_arena)
         act_attr = QAction("蛐蛐属性", self)
         act_attr.triggered.connect(self._toggle_panel)
         act_cfg = QAction("蛐蛐设置", self)
         act_cfg.triggered.connect(self._toggle_settings)
         act_quit = QAction("退出游戏", self)
         act_quit.triggered.connect(self._quit)
+        menu.addAction(act_fight)
+        menu.addSeparator()
         menu.addAction(act_attr)
         menu.addAction(act_cfg)
         menu.addSeparator()
         menu.addAction(act_quit)
         menu.exec(QCursor.pos())
+
+    def _open_arena(self) -> None:
+        """打开竞技场：自动观战，赢了给蛐蛐加经验。"""
+        from arena import ArenaWindow
+        if getattr(self, "arena_win", None) is not None \
+                and self.arena_win.isVisible():
+            self.arena_win.raise_()
+            return
+        self.arena_win = ArenaWindow(self)
 
     def _toggle_panel(self) -> None:
         if self.panel.isVisible():
