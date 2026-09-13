@@ -1,30 +1,32 @@
 # -*- coding: utf-8 -*-
-"""竞技场：战斗表现层。
+"""竞技场：俯视斗蛐蛐罐（表现层）。
 
-battle.py 负责算，本文件负责演 —— 引擎每 0.1 秒吐一批事件，
-这里把它们播放成冲刺、受击、飘字、倒下、逃跑等画面。
+battle.py 负责算，本文件负责演：
+  引擎每 0.1 秒吐一批事件，这里把它们播放成盘内走位、冲锋、击退、
+  对峙转头、力竭后撤、掉头逃出罐外等画面。
+引擎依旧不知道画面的存在 —— 同一个 seed 永远是同一场战斗。
 """
 
 from __future__ import annotations
 
+import math
 import random
 
-from PySide6.QtCore import Qt, QTimer, QRectF
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
                                QWidget)
 
 from battle import Battle, make_fighter
-from cricket import Cricket, paint_cricket, palette_from_hex
+from cricket import Cricket, paint_cricket_top, palette_from_hex
 from stats import StatsDB, fmt_num
 
-WIN_W, WIN_H = 720, 470
-LEFT_X, RIGHT_X = 175, 545
-FOOT_Y = 330
-CRICKET_SCALE = 1.55
+WIN_W, WIN_H = 760, 540
+DISH_CX, DISH_CY, DISH_R = 380, 306, 196
+CRICKET_SCALE = 1.35
 
-BAR_W = 210
-BAR_HP_Y, BAR_STA_Y, BAR_MOR_Y = 58, 80, 96
+BAR_W = 230
+ROW_NAME, ROW_HP, ROW_STA, ROW_MOR = 18, 42, 64, 80
 
 STATUS_COLOR = {
     "s001": ("力竭", "#BA7517"), "s002": ("流血", "#A32D2D"),
@@ -32,13 +34,14 @@ STATUS_COLOR = {
     "s005": ("高涨", "#3B6D11"), "s006": ("畏缩", "#993556"),
 }
 
-BG_TOP = QColor("#2B3140")
-BG_BOT = QColor("#20242E")
-SAND = QColor("#C8B78A")
+FLOOR = QColor("#D9C9A2")
+FLOOR_RING = QColor(0, 0, 0, 34)
+RIM = QColor("#7A6A50")
+RIM_DK = QColor("#57492F")
 
 
 class ArenaWindow(QWidget):
-    """两只蛐蛐的自动战斗直播窗口。"""
+    """俯视斗蛐蛐罐。"""
 
     def __init__(self, pet):
         super().__init__()
@@ -58,7 +61,6 @@ class ArenaWindow(QWidget):
     # ---------- 开局 ----------
 
     def _make_side(self, side: int):
-        """side 0 = 玩家的蛐蛐；side 1 = 随机对手（同等级野蛐蛐）。"""
         if side == 0:
             sp = self.db.species(self.pet.species_id) or {}
             name = f"{sp.get('名称', '蛐蛐')}·我方"
@@ -72,26 +74,38 @@ class ArenaWindow(QWidget):
             f = make_fighter(self.db, 1, name, sid, self.pet.level)
             pal = palette_from_hex(str(sp.get("主色", "#6FA83C")))
         c = Cricket()
-        c.act_next = 9999          # 战斗中禁止随机蹦跶
-        c.facing = c.facing_target = -1.0 if side == 1 else 1.0
+        c.act_next = 9999
         return f, c, pal
 
     def _restart(self) -> None:
         self.f = [self._make_side(0), self._make_side(1)]
-        seed = random.randrange(1 << 30)
-        self.battle = Battle(self.db, self.f[0][0], self.f[1][0], seed=seed)
-        self.seed = seed
+        self.seed = random.randrange(1 << 30)
+        self.battle = Battle(self.db, self.f[0][0], self.f[1][0], seed=self.seed)
         self.acc = 0.0
-        self.intro_t = 1.0         # VS 开场倒计时
-        self.end_t = -1.0          # 结束后延迟出结算
+        self.intro_t = 1.0
+        self.end_t = -1.0
         self.shake_t = 0.0
+        # 走位编排状态
+        self.ch = []
+        for side in (0, 1):
+            x = DISH_CX + (-128 if side == 0 else 128)
+            y = DISH_CY + (14 if side == 0 else -14)
+            self.ch.append({
+                "x": x, "y": y,
+                "hd": 0.0 if side == 0 else 180.0,   # 当前朝向(度)
+                "thd": 0.0 if side == 0 else 180.0,  # 目标朝向
+                "wt": (x, y),                        # 游走目标点
+                "wt_t": 0.0,
+                "kn": [0.0, 0.0],                    # 受击退速度
+                "dash": None,                        # {'t','dur','sx','sy','tx','ty'}
+            })
         self.fx = {
-            "lunge": [0.0, 0.0], "flash": [0.0, 0.0], "guard": [0.0, 0.0],
+            "flash": [0.0, 0.0], "guard": [0.0, 0.0],
             "floats": [],          # (text, side, dy, life, color)
-            "flee": None,          # (side, dx)
-            "ko": None,            # side
+            "flee": None,          # (side, )
+            "ko": None,
         }
-        self.log: list[str] = [" waiting"]
+        self.log = [" waiting"]
         self.result_box.hide()
         self.timer.start()
 
@@ -109,7 +123,6 @@ class ArenaWindow(QWidget):
         if self.intro_t > 0:
             self.intro_t -= dt
         else:
-            # 引擎推进（固定 0.1s 步长）
             self.acc += dt
             tick = float(self.db.const("TICK", 0.1))
             while self.acc >= tick and not self.battle.over:
@@ -122,30 +135,124 @@ class ArenaWindow(QWidget):
             if self.end_t <= 0:
                 self._show_result()
 
+        self.shake_t = max(0.0, self.shake_t - dt)
         for k in (0, 1):
-            self.fx["lunge"][k] = max(0.0, self.fx["lunge"][k] - dt)
             self.fx["flash"][k] = max(0.0, self.fx["flash"][k] - dt)
             self.fx["guard"][k] = max(0.0, self.fx["guard"][k] - dt)
-        self.shake_t = max(0.0, self.shake_t - dt)
-
         for fl in self.fx["floats"]:
             fl[2] += 42 * dt
             fl[3] -= dt
         self.fx["floats"] = [x for x in self.fx["floats"] if x[3] > 0]
 
-        # 蛐蛐待机动画
         for i in (0, 1):
-            f, c, _pal = self.f[i]
-            if (self.fx["ko"] == i or
-                    (self.fx["flee"] and self.fx["flee"][0] == i)):
-                continue
-            c.update(dt)
-
-        if self.fx["flee"]:
-            side, dx = self.fx["flee"]
-            self.fx["flee"] = (side, dx + 300 * dt)
+            frozen = (self.fx["ko"] == i or
+                      (self.fx["flee"] and self.fx["flee"][0] == i
+                       and self.fx["flee"][1] >= 1))
+            if not frozen:
+                self.f[i][1].update(dt)
+            self._choreo(i, dt)
+        self._separate()
 
         self.update()
+
+    def _separate(self) -> None:
+        """两只蛐蛐最小身体间距，防止叠成一团；冲锋/倒下/逃跑的一方不被推开。"""
+        a, b = self.ch[0], self.ch[1]
+        busy = [False, False]
+        if self.fx["ko"] is not None:
+            busy[self.fx["ko"]] = True
+        if self.fx["flee"]:
+            busy[self.fx["flee"][0]] = True
+        for i in (0, 1):
+            if self.ch[i]["dash"] is not None:
+                busy[i] = True
+        if all(busy):
+            return
+        dx, dy = b["x"] - a["x"], b["y"] - a["y"]
+        d = math.hypot(dx, dy)
+        min_d = 68.0
+        if d >= min_d or d < 0.01:
+            return
+        push = (min_d - d) / 2.0
+        ux, uy = dx / d, dy / d
+        if not busy[0]:
+            a["x"] -= ux * push * (2 if busy[1] else 1)
+            a["y"] -= uy * push * (2 if busy[1] else 1)
+        if not busy[1]:
+            b["x"] += ux * push * (2 if busy[0] else 1)
+            b["y"] += uy * push * (2 if busy[0] else 1)
+
+    # ---------- 走位编排 ----------
+
+    def _foe_pos(self, i: int) -> tuple[float, float]:
+        o = self.ch[1 - i]
+        return o["x"], o["y"]
+
+    def _choreo(self, i: int, dt: float) -> None:
+        if self.fx["ko"] == i:
+            return
+        ch = self.ch[i]
+        f, _c, _pal = self.f[i]
+        fleeing = self.fx["flee"] and self.fx["flee"][0] == i
+
+        # 冲锋：沿出-回的正弦轨迹扑向对手
+        if ch["dash"] is not None:
+            d = ch["dash"]
+            d["t"] += dt
+            k = min(1.0, d["t"] / d["dur"])
+            off = math.sin(k * math.pi)
+            ch["x"] = d["sx"] + (d["tx"] - d["sx"]) * off
+            ch["y"] = d["sy"] + (d["ty"] - d["sy"]) * off
+            if k >= 1.0:
+                ch["dash"] = None
+        elif fleeing:
+            # 掉头往罐外冲
+            dx, dy = ch["x"] - DISH_CX, ch["y"] - DISH_CY
+            n = math.hypot(dx, dy) or 1.0
+            ch["x"] += dx / n * 300 * dt
+            ch["y"] += dy / n * 300 * dt
+            self.fx["flee"] = (i, min(1.0, self.fx["flee"][1] + dt * 0.8))
+        else:
+            # 受击退惯性
+            if abs(ch["kn"][0]) > 1 or abs(ch["kn"][1]) > 1:
+                ch["x"] += ch["kn"][0] * dt
+                ch["y"] += ch["kn"][1] * dt
+                ch["kn"][0] *= max(0.0, 1.0 - 7.0 * dt)
+                ch["kn"][1] *= max(0.0, 1.0 - 7.0 * dt)
+            # 游走：目标点偏向两蛐蛐中点附近，保持对峙距离
+            ch["wt_t"] -= dt
+            fx_, fy_ = self._foe_pos(i)
+            mx, my = (ch["x"] + fx_) / 2, (ch["y"] + fy_) / 2
+            if ch["wt_t"] <= 0 or math.hypot(ch["wt"][0] - ch["x"],
+                                             ch["wt"][1] - ch["y"]) < 8:
+                ang = random.uniform(0, math.tau)
+                rr = random.uniform(30, 110)
+                ch["wt"] = (mx + math.cos(ang) * rr, my + math.sin(ang) * rr)
+                ch["wt_t"] = random.uniform(0.8, 2.0)
+            wx, wy = ch["wt"]
+            dwx, dwy = wx - ch["x"], wy - ch["y"]
+            dist = math.hypot(dwx, dwy)
+            if dist > 6:
+                sp = 52.0 if math.hypot(fx_ - ch["x"], fy_ - ch["y"]) > 150 else 34.0
+                ch["x"] += dwx / dist * sp * dt
+                ch["y"] += dwy / dist * sp * dt
+                ch["thd"] = math.degrees(math.atan2(dwy, dwx))
+            # 近距离对峙：面向对手
+            if math.hypot(fx_ - ch["x"], fy_ - ch["y"]) < 150:
+                ch["thd"] = math.degrees(math.atan2(fy_ - ch["y"], fx_ - ch["x"]))
+
+        # 盘内约束（逃跑除外）
+        if not fleeing:
+            dx, dy = ch["x"] - DISH_CX, ch["y"] - DISH_CY
+            d = math.hypot(dx, dy)
+            lim = DISH_R - 34
+            if d > lim:
+                ch["x"] = DISH_CX + dx / d * lim
+                ch["y"] = DISH_CY + dy / d * lim
+
+        # 朝向平滑
+        diff = (ch["thd"] - ch["hd"] + 540) % 360 - 180
+        ch["hd"] += diff * min(1.0, dt * 7.0)
 
     # ---------- 事件播放 ----------
 
@@ -157,24 +264,38 @@ class ArenaWindow(QWidget):
         names = (self.f[0][0].name, self.f[1][0].name)
         if t == "start":
             self._log(f"开战！{names[0]} VS {names[1]}")
-        elif t == "hit":
+        elif t in ("hit", "miss"):
             side = e["side"]
-            self.fx["lunge"][side] = 0.26
-            self.fx["flash"][1 - side] = 0.22
-            if e.get("crit"):
-                self.shake_t = 0.3
-            self._float(f"{'暴击 ' if e.get('crit') else ''}-{e['dmg']}",
-                        1 - side, "#F09595" if side == 1 else "#E24B4A", -34)
-            if e.get("guarded"):
-                self.fx["guard"][1 - side] = 0.5
-                self._float("格挡!", 1 - side, "#5DCAA5", -52)
-            self._log(f"{names[side]} 使出「{e['move']}」"
-                      f"{'暴击' if e.get('crit') else '命中'} {e['dmg']}"
-                      f"{'（被格挡）' if e.get('guarded') else ''}")
-        elif t == "miss":
-            self.fx["lunge"][e["side"]] = 0.26
-            self._float("闪避", 1 - e["side"], "#B4B2A9", -34)
-            self._log(f"{names[e['side']]} 的「{e['move']}」被躲开了")
+            sx, sy = self.ch[side]["x"], self.ch[side]["y"]
+            tx, ty = self._foe_pos(side)
+            dist = math.hypot(tx - sx, ty - sy)
+            reach = max(30.0, min(110.0, dist - 52))
+            n = dist or 1.0
+            ch = self.ch[side]
+            ch["dash"] = {"t": 0.0, "dur": 0.24,
+                          "sx": sx, "sy": sy,
+                          "tx": sx + (tx - sx) / n * reach,
+                          "ty": sy + (ty - sy) / n * reach}
+            ch["thd"] = math.degrees(math.atan2(ty - sy, tx - sx))
+            if t == "hit":
+                self.fx["flash"][1 - side] = 0.22
+                if e.get("crit"):
+                    self.shake_t = 0.3
+                # 受击退
+                kn = self.ch[1 - side]["kn"]
+                kn[0] = (tx - sx) / n * 230
+                kn[1] = (ty - sy) / n * 230
+                self._float(f"{'暴击 ' if e.get('crit') else ''}-{e['dmg']}",
+                            1 - side, "#F09595" if side == 1 else "#E24B4A", -34)
+                if e.get("guarded"):
+                    self.fx["guard"][1 - side] = 0.5
+                    self._float("格挡!", 1 - side, "#5DCAA5", -52)
+                self._log(f"{names[side]} 使出「{e['move']}」"
+                          f"{'暴击' if e.get('crit') else '命中'} {e['dmg']}"
+                          f"{'（被格挡）' if e.get('guarded') else ''}")
+            else:
+                self._float("闪避", 1 - side, "#B4B2A9", -34)
+                self._log(f"{names[side]} 的「{e['move']}」被躲开了")
         elif t == "guard_up":
             self.fx["guard"][e["side"]] = 0.8
             self._log(f"{names[e['side']]} 摆出「{e['move']}」架势")
@@ -191,9 +312,15 @@ class ArenaWindow(QWidget):
             self._float(f"-{e['dmg']}", e["side"], "#F0997B", -20)
         elif t == "exhaust":
             self._float("力竭!", e["side"], "#EF9F27", -46)
+            # 力竭后撤两步
+            ch = self.ch[e["side"]]
+            fx_, fy_ = self._foe_pos(e["side"])
+            n = math.hypot(ch["x"] - fx_, ch["y"] - fy_) or 1.0
+            ch["kn"][0] = (ch["x"] - fx_) / n * 120
+            ch["kn"][1] = (ch["y"] - fy_) / n * 120
             self._log(f"{names[e['side']]} 耐力见底，暂时动弹不得")
         elif t == "end":
-            self.end_t = 1.1
+            self.end_t = 1.3
             w = e["winner"]
             if e["reason"] == "击倒":
                 self.fx["ko"] = 1 - w
@@ -201,8 +328,7 @@ class ArenaWindow(QWidget):
             elif e["reason"] == "士气崩溃":
                 loser = 1 - w
                 self.fx["flee"] = (loser, 0.0)
-                self.f[loser][1].facing_target = -1.0 if loser == 0 else 1.0
-                self._log(f"{names[loser]} 斗性崩溃，掉头就跑！")
+                self._log(f"{names[loser]} 斗性崩溃，掉头冲出罐外！")
             else:
                 self._log(f"战至超时，{e['reason']}"
                           + (f"，{names[w]}胜" if w is not None else "，平局"))
@@ -215,7 +341,7 @@ class ArenaWindow(QWidget):
 
     def _build_result_overlay(self) -> None:
         box = QWidget(self)
-        box.setGeometry(160, 120, 400, 230)
+        box.setGeometry(180, 150, 400, 230)
         box.setStyleSheet(
             "QWidget{background:#1A2028; border:1px solid rgba(255,255,255,0.16);"
             "border-radius:12px;}")
@@ -225,7 +351,8 @@ class ArenaWindow(QWidget):
 
         self.r_title = QLabel("战斗结束")
         self.r_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.r_title.setStyleSheet("border:none; color:#E8EDF2; font-size:22px; font-weight:600;")
+        self.r_title.setStyleSheet(
+            "border:none; color:#E8EDF2; font-size:22px; font-weight:600;")
         root.addWidget(self.r_title)
 
         self.r_detail = QLabel("")
@@ -261,15 +388,8 @@ class ArenaWindow(QWidget):
         self.r_title.setStyleSheet(
             f"border:none; color:{color}; font-size:22px; font-weight:600;")
 
-        xp = 0
-        if w == 0:
-            xp = 30 + 6 * b.level
-        elif w == 1:
-            xp = 6
-        else:
-            xp = 12
-        if xp > 0:
-            self.pet._add_xp(xp)
+        xp = {0: 30 + 6 * b.level, 1: 6}.get(w, 12)
+        self.pet._add_xp(xp)
 
         self.r_detail.setText(
             f"{e_reason(self.battle.end_reason)}\n"
@@ -286,111 +406,147 @@ class ArenaWindow(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # 背景 + 地面
-        p.fillRect(self.rect(), BG_TOP)
-        p.fillRect(QRectF(0, 0, WIN_W, 140), BG_BOT)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(SAND))
-        p.drawEllipse(QRectF(-80, FOOT_Y - 6, WIN_W + 160, 130))
+        p.fillRect(self.rect(), QColor("#232733"))
 
-        # 震屏（暴击时）
         if self.shake_t > 0:
-            import random as _r
-            p.translate(_r.uniform(-3, 3), _r.uniform(-3, 3))
+            p.translate(random.uniform(-3, 3), random.uniform(-3, 3))
 
+        self._draw_dish(p)
         for i in (0, 1):
-            self._draw_fighter(p, i)
-
+            self._draw_cricket(p, i)
+        self._draw_bars(p)
         self._draw_floats(p)
         self._draw_log(p)
         if self.intro_t > 0:
             self._draw_vs(p)
         p.end()
 
-    def _fighter_x(self, i: int) -> float:
-        x = LEFT_X if i == 0 else RIGHT_X
-        lunge = self.fx["lunge"][i]
-        if lunge > 0:
-            prog = 1.0 - lunge / 0.26
-            off = 70 * (1 if i == 0 else -1)
-            import math
-            x += math.sin(prog * 3.14159) * off
-        if self.fx["flee"] and self.fx["flee"][0] == i:
-            x -= self.fx["flee"][1] * (1 if i == 0 else -1)
-        return x
+    def _draw_dish(self, p: QPainter) -> None:
+        # 罐底投影
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(0, 0, 0, 110)))
+        p.drawEllipse(QRectF(DISH_CX - DISH_R - 18, DISH_CY - DISH_R - 10,
+                             (DISH_R + 18) * 2, (DISH_R + 10) * 2 + 26))
+        # 陶罐外沿
+        p.setBrush(QBrush(RIM_DK))
+        p.drawEllipse(QRectF(DISH_CX - DISH_R - 14, DISH_CY - DISH_R - 14,
+                             (DISH_R + 14) * 2, (DISH_R + 14) * 2))
+        p.setBrush(QBrush(RIM))
+        p.drawEllipse(QRectF(DISH_CX - DISH_R - 8, DISH_CY - DISH_R - 8,
+                             (DISH_R + 8) * 2, (DISH_R + 8) * 2))
+        # 沿口高光
+        p.setPen(QPen(QColor(255, 255, 255, 46), 3))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QRectF(DISH_CX - DISH_R - 4, DISH_CY - DISH_R - 4,
+                             (DISH_R + 4) * 2, (DISH_R + 4) * 2))
+        # 盘底（沙土色，微渐变制造凹陷感）
+        g = QLinearGradient(DISH_CX, DISH_CY - DISH_R,
+                            DISH_CX, DISH_CY + DISH_R)
+        g.setColorAt(0.0, FLOOR.lighter(108))
+        g.setColorAt(1.0, FLOOR.darker(112))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(g))
+        p.drawEllipse(QRectF(DISH_CX - DISH_R, DISH_CY - DISH_R,
+                             DISH_R * 2, DISH_R * 2))
+        # 盘底同心圈（斗盆的中圈标线）
+        p.setPen(QPen(FLOOR_RING, 1.4))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for rr in (DISH_R - 16, int(DISH_R * 0.55)):
+            p.drawEllipse(QRectF(DISH_CX - rr, DISH_CY - rr, rr * 2, rr * 2))
+        p.setPen(QPen(FLOOR_RING, 1.0))
+        p.drawLine(QPointF(DISH_CX - DISH_R + 16, DISH_CY),
+                   QPointF(DISH_CX + DISH_R - 16, DISH_CY))
 
-    def _draw_fighter(self, p: QPainter, i: int) -> None:
+    def _draw_cricket(self, p: QPainter, i: int) -> None:
+        ch = self.ch[i]
         f, c, pal = self.f[i]
-        x = self._fighter_x(i)
-
-        paint_cricket(p, x, FOOT_Y, CRICKET_SCALE, c, pal)
+        opacity = 1.0
+        if self.fx["flee"] and self.fx["flee"][0] == i:
+            # 冲出罐沿后逐渐淡出
+            d = math.hypot(ch["x"] - DISH_CX, ch["y"] - DISH_CY)
+            opacity = max(0.0, 1.0 - max(0.0, d - DISH_R + 10) / 70.0)
+            if opacity <= 0.0:
+                return
+        angle = ch["hd"] + (26 if self.fx["ko"] == i else 0)
+        paint_cricket_top(p, ch["x"], ch["y"], angle, CRICKET_SCALE,
+                          c, pal, opacity)
 
         # 受击闪白
         if self.fx["flash"][i] > 0:
             a = int(150 * self.fx["flash"][i] / 0.22)
+            p.save()
+            p.translate(ch["x"], ch["y"])
+            p.rotate(ch["hd"])
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(QColor(255, 255, 255, a)))
-            p.drawEllipse(QRectF(x - 52, FOOT_Y - 96, 104, 100))
+            p.drawEllipse(QRectF(-48, -26, 110, 52))
+            p.restore()
 
         # 格挡护罩
         if self.fx["guard"][i] > 0:
             a = int(160 * min(1.0, self.fx["guard"][i] / 0.5))
             p.setPen(QPen(QColor(93, 202, 165, a), 3.0))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawArc(QRectF(x - 46, FOOT_Y - 88, 92, 92), 60 * 16, 240 * 16)
+            p.drawEllipse(QRectF(ch["x"] - 46, ch["y"] - 46, 92, 92))
 
         # 倒下灰化
         if self.fx["ko"] == i:
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(QColor(40, 44, 52, 150)))
-            p.drawEllipse(QRectF(x - 52, FOOT_Y - 70, 104, 74))
-
-        # 状态角标
-        t = self.battle.t
-        chips = [(STATUS_COLOR[sid][0], STATUS_COLOR[sid][1],
-                  st["stacks"]) for sid, st in f.statuses.items()
-                 if st["until"] > t and sid in STATUS_COLOR]
-        cx = x - len(chips) * 17 + 17
-        for name, color, stacks in chips:
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(QColor(color)))
-            p.drawRoundedRect(QRectF(cx - 15, FOOT_Y + 12, 30, 18), 5, 5)
-            p.setPen(QPen(QColor("white")))
-            p.setFont(QFont("Microsoft YaHei", 8))
-            txt = name if stacks <= 1 else f"{name}{stacks}"
-            p.drawText(QRectF(cx - 15, FOOT_Y + 12, 30, 18),
-                       Qt.AlignmentFlag.AlignCenter, txt)
-            cx += 34
-
-        # 名字 + 三条状态条
-        name_x = 40 if i == 0 else WIN_W - 40 - BAR_W
-        p.setPen(QPen(QColor("#E8EDF2")))
-        p.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.DemiBold))
-        p.drawText(QRectF(name_x, 26, BAR_W, 20),
-                   Qt.AlignmentFlag.AlignLeft if i == 0 else Qt.AlignmentFlag.AlignRight,
-                   f"{f.name}  Lv.{f.level}")
-        self._bar(p, name_x, BAR_HP_Y, BAR_W, 12, f.hp / f.hp_max,
-                  "#E24B4A", f"{fmt_num(f.hp)}/{fmt_num(f.hp_max)}")
-        self._bar(p, name_x, BAR_STA_Y, BAR_W, 8, f.sta / f.sta_max,
-                  "#378ADD", None)
-        self._bar(p, name_x, BAR_MOR_Y, BAR_W, 5, f.morale / 100.0,
-                  "#EF9F27", None)
+            p.drawEllipse(QRectF(ch["x"] - 46, ch["y"] - 26, 96, 52))
 
     def _bar(self, p: QPainter, x: float, y: float, w: float, h: float,
-             ratio: float, color: str, label: str | None) -> None:
+             ratio: float, color: str, label: str | None,
+             align_right: bool = False) -> None:
         ratio = max(0.0, min(1.0, ratio))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(QColor(0, 0, 0, 110)))
         p.drawRoundedRect(QRectF(x, y, w, h), h / 2, h / 2)
         if ratio > 0:
             p.setBrush(QBrush(QColor(color)))
-            p.drawRoundedRect(QRectF(x + 1, y + 1, max(h - 2, (w - 2) * ratio),
-                                     h - 2), (h - 2) / 2, (h - 2) / 2)
+            fw = max(h - 2, (w - 2) * ratio)
+            fx = x + 1 if not align_right else x + w - 1 - fw
+            p.drawRoundedRect(QRectF(fx, y + 1, fw, h - 2),
+                              (h - 2) / 2, (h - 2) / 2)
         if label:
             p.setPen(QPen(QColor("white")))
             p.setFont(QFont("Microsoft YaHei", 8))
             p.drawText(QRectF(x, y - 1, w, h + 2),
                        Qt.AlignmentFlag.AlignCenter, label)
+
+    def _draw_bars(self, p: QPainter) -> None:
+        for i in (0, 1):
+            f, _c, _pal = self.f[i]
+            right = i == 1
+            x = 36 if not right else WIN_W - 36 - BAR_W
+            p.setPen(QPen(QColor("#E8EDF2")))
+            p.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.DemiBold))
+            p.drawText(QRectF(x, ROW_NAME, BAR_W, 20),
+                       Qt.AlignmentFlag.AlignLeft if not right
+                       else Qt.AlignmentFlag.AlignRight,
+                       f"{f.name}  Lv.{f.level}")
+            self._bar(p, x, ROW_HP, BAR_W, 13, f.hp / f.hp_max,
+                      "#E24B4A", f"{fmt_num(f.hp)}/{fmt_num(f.hp_max)}", right)
+            self._bar(p, x, ROW_STA, BAR_W, 8, f.sta / f.sta_max,
+                      "#378ADD", None, right)
+            self._bar(p, x, ROW_MOR, BAR_W, 6, f.morale / 100.0,
+                      "#EF9F27", None, right)
+            # 状态角标
+            t = self.battle.t
+            chips = [(STATUS_COLOR[sid][0], STATUS_COLOR[sid][1], st["stacks"])
+                     for sid, st in f.statuses.items()
+                     if st["until"] > t and sid in STATUS_COLOR]
+            cx = x if not right else x + BAR_W - len(chips) * 36
+            for name, color, stacks in chips:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(color)))
+                p.drawRoundedRect(QRectF(cx, ROW_MOR + 12, 34, 18), 5, 5)
+                p.setPen(QPen(QColor("white")))
+                p.setFont(QFont("Microsoft YaHei", 8))
+                txt = name if stacks <= 1 else f"{name}x{stacks}"
+                p.drawText(QRectF(cx, ROW_MOR + 12, 34, 18),
+                           Qt.AlignmentFlag.AlignCenter, txt)
+                cx += 36
 
     def _draw_floats(self, p: QPainter) -> None:
         font = QFont("Microsoft YaHei", 13, QFont.Weight.DemiBold)
@@ -399,8 +555,8 @@ class ArenaWindow(QWidget):
             alpha = min(1.0, life / 0.5)
             c = QColor(color)
             c.setAlphaF(alpha)
-            x = self._fighter_x(side)
-            r = QRectF(x - 70, FOOT_Y - 120 - dy, 140, 26)
+            ch = self.ch[side]
+            r = QRectF(ch["x"] - 70, ch["y"] - 78 - dy, 140, 26)
             p.setPen(QPen(QColor(0, 0, 0, int(140 * alpha)), 3.0))
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
             p.setPen(QPen(c, 1.0))
@@ -408,20 +564,20 @@ class ArenaWindow(QWidget):
 
     def _draw_log(self, p: QPainter) -> None:
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(0, 0, 0, 90)))
-        p.drawRoundedRect(QRectF(30, WIN_H - 108, WIN_W - 60, 88), 10, 10)
+        p.setBrush(QBrush(QColor(0, 0, 0, 100)))
+        p.drawRoundedRect(QRectF(30, WIN_H - 84, WIN_W - 60, 70), 10, 10)
         p.setPen(QPen(QColor("#C9D2DC")))
         p.setFont(QFont("Microsoft YaHei", 9))
-        y = WIN_H - 90
+        y = WIN_H - 68
         for line in self.log:
-            p.drawText(QRectF(46, y, WIN_W - 92, 20),
+            p.drawText(QRectF(46, y, WIN_W - 92, 18),
                        Qt.AlignmentFlag.AlignLeft, line)
-            y += 21
+            y += 18
 
     def _draw_vs(self, p: QPainter) -> None:
-        p.setPen(QPen(QColor(255, 255, 255, int(200 * min(1, self.intro_t)))))
-        p.setFont(QFont("Microsoft YaHei", 42, QFont.Weight.DemiBold))
-        p.drawText(self.rect().adjusted(0, -90, 0, -90),
+        p.setPen(QPen(QColor(255, 255, 255, int(220 * min(1, self.intro_t)))))
+        p.setFont(QFont("Microsoft YaHei", 46, QFont.Weight.DemiBold))
+        p.drawText(self.rect().adjusted(0, -60, 0, -60),
                    Qt.AlignmentFlag.AlignCenter, "VS")
 
 

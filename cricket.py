@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import random
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 
 BODY_HI = QColor("#A8D465")
@@ -248,3 +248,132 @@ def paint_cricket(p: QPainter, cx: float, foot_y: float, scale: float,
     p.translate(0, -22)
     _draw_body(p, c, palette or DEFAULT_PALETTE)
     p.restore()
+
+
+# ---------------- 俯视视角（竞技盘用） ----------------
+
+def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
+                      scale: float, c: Cricket, palette: dict | None = None,
+                      opacity: float = 1.0) -> None:
+    """俯视画法。angle_deg=0 朝右(+x)，逆时针为负（Qt y 轴向下，正角即顺时针）。
+
+    特征按真实斗蟋蟀俯视照取形：长触须、外撇大后腿、翅面纵纹、尾须。
+    """
+    pal = palette or DEFAULT_PALETTE
+    hi, body, dk, belly = pal["hi"], pal["body"], pal["dk"], pal["belly"]
+    sway = math.sin(c.t * 1.8) * 7.0
+    breathe = 1.0 + 0.03 * math.sin(c.t * 2.4)
+
+    if opacity < 1.0:
+        p.setOpacity(max(0.05, min(1.0, opacity)))
+
+    p.save()
+    p.translate(x, y)
+    p.rotate(angle_deg)
+    p.scale(scale * breathe, scale / breathe)
+
+    # 影子（略向右下偏，制造一点离地感）
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(QColor(0, 0, 0, 52)))
+    p.drawEllipse(QRectF(-34, -14, 74, 30))
+
+    # 大后腿（先画，压在身体下面）：粗股节斜后撇 + 细胫节
+    for s in (1, -1):
+        fem = QPainterPath()
+        fem.moveTo(2, 7 * s)
+        fem.quadTo(16, 13 * s, 18, 22 * s)
+        _stroke(p, fem, LIMB_FAR if s < 0 else LIMB, 5.2)
+        tib = QPainterPath()
+        tib.moveTo(18, 22 * s)
+        tib.quadTo(34, 27 * s, 46, 24 * s)
+        _stroke(p, tib, LIMB_FAR if s < 0 else LIMB, 2.2)
+
+    # 中腿
+    for s in (1, -1):
+        leg = QPainterPath()
+        leg.moveTo(2, 8 * s)
+        leg.quadTo(0, 18 * s, 10, 22 * s)
+        _stroke(p, leg, LIMB, 2.4)
+
+    # 前腿（画在头前，最后压上）
+    for s in (1, -1):
+        leg = QPainterPath()
+        leg.moveTo(18, 7 * s)
+        leg.quadTo(24, 13 * s, 32, 14 * s)
+        _stroke(p, leg, LIMB, 2.2)
+
+    # 腹部（翅下躯干轮廓）
+    p.setPen(QPen(dk, 1.4))
+    p.setBrush(QBrush(body))
+    p.drawEllipse(QRectF(-36, -12, 56, 24))
+
+    # 翅面：左右两片革质前翅，带纵纹与斜肩
+    for s in (1, -1):
+        wing = QPainterPath()
+        wing.moveTo(14, 1 * s)
+        wing.quadTo(4, 12.5 * s, -16, 11 * s)
+        wing.quadTo(-32, 9.5 * s, -37, 3 * s)
+        wing.quadTo(-30, -2 * s, -8, -3.5 * s)
+        wing.quadTo(6, -4 * s, 14, 1 * s)
+        p.setPen(QPen(dk, 1.1))
+        p.setBrush(QBrush(hi if s > 0 else body))
+        p.drawPath(wing)
+        # 翅纵纹
+        p.setPen(QPen(QColor(dk.red(), dk.green(), dk.blue(), 120), 0.9))
+        for i in range(3):
+            yy = (5 - i * 4) * s
+            p.drawLine(QPointF(8 - i * 2, 1.2 * s), QPointF(-30 + i, yy))
+
+    # 后翅尖（交叠在尾端）
+    p.setPen(QPen(dk, 1.0))
+    p.setBrush(QBrush(belly))
+    p.drawEllipse(QRectF(-40, -4, 12, 8))
+
+    # 前胸背板（头后的硬壳，颜色深一档）
+    p.setPen(QPen(dk, 1.2))
+    p.setBrush(QBrush(dk))
+    p.drawEllipse(QRectF(8, -11, 18, 22))
+
+    # 头
+    p.setPen(QPen(dk, 1.3))
+    p.setBrush(QBrush(body))
+    p.drawEllipse(QRectF(21, -9, 19, 18))
+    # 头壳亮面
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(hi))
+    p.drawEllipse(QRectF(25, -6, 11, 12))
+
+    # 复眼（头两侧的深色大眼）
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QBrush(EYE_D))
+    p.drawEllipse(QRectF(23, -10, 7, 7))
+    p.drawEllipse(QRectF(23, 3, 7, 7))
+
+    # 上颚（斗口时张合的两片小钳）
+    p.setPen(QPen(LIMB, 2.0))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    jaw = 4.0 + 3.0 * abs(math.sin(c.t * 3.1)) if c.chirp > 0 else 4.0
+    for s in (1, -1):
+        m = QPainterPath()
+        m.moveTo(38, 2.5 * s)
+        m.quadTo(44, (2.5 + jaw * 0.6) * s, 47, (4.5 + jaw) * s)
+        _stroke(p, m, LIMB, 2.0)
+
+    # 触须：又长又飘，是俯视视角的灵魂
+    for s in (1, -1):
+        ant = QPainterPath()
+        ant.moveTo(36, 3 * s)
+        ant.quadTo(58, (10 + sway * 0.4) * s, 82, (6 + sway) * s)
+        ant.quadTo(96, (3 + sway * 0.6) * s, 106, (-2 + sway * 0.3) * s)
+        _stroke(p, ant, LIMB_HI, 1.6)
+
+    # 尾须
+    for s in (1, -1):
+        cer = QPainterPath()
+        cer.moveTo(-38, 3 * s)
+        cer.quadTo(-48, 5 * s, -56, 8 * s)
+        _stroke(p, cer, LIMB, 1.6)
+
+    p.restore()
+    if opacity < 1.0:
+        p.setOpacity(1.0)
