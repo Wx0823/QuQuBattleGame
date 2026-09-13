@@ -234,15 +234,24 @@ class ArenaWindow(QWidget):
             dist = math.hypot(fx_ - ch["x"], fy_ - ch["y"]) or 1.0
             ch["mode_t"] -= dt
             if ch["mode_t"] <= 0:
+                prev = ch["mode"]
                 if dist < 95:
-                    ch["mode"] = random.choice(
-                        ("retreat", "circle", "wander", "retreat"))
+                    pool = ("retreat", "circle", "wander", "retreat")
                 elif dist > 175:
-                    ch["mode"] = "approach"
+                    # 刚退完不马上贴回去，除非真离得很远
+                    if prev == "retreat" and dist < 220:
+                        pool = ("circle", "wander")
+                    else:
+                        pool = ("approach",)
                 else:
-                    ch["mode"] = random.choice(
-                        ("wander", "circle", "approach", "retreat", "circle"))
-                ch["mode_t"] = random.uniform(0.7, 1.7)
+                    pool = ("wander", "circle", "approach", "retreat", "circle")
+                    if prev == "retreat":
+                        # 退完先缓和一轮，杜绝"退了又立刻冲回"的乒乓感
+                        pool = ("wander", "circle", "wander", "circle")
+                ch["mode"] = random.choice(pool)
+                ch["mode_t"] = (random.uniform(1.0, 2.0)
+                                if ch["mode"] == "retreat"
+                                else random.uniform(0.7, 1.7))
 
             ux, uy = (fx_ - ch["x"]) / dist, (fy_ - ch["y"]) / dist
             mvx, mvy, sp = 0.0, 0.0, 0.0
@@ -321,14 +330,18 @@ class ArenaWindow(QWidget):
             sx, sy = self.ch[side]["x"], self.ch[side]["y"]
             tx, ty = self._foe_pos(side)
             dist = math.hypot(tx - sx, ty - sy)
-            reach = max(30.0, min(110.0, dist - 52))
+            # 距离越远，扑击行程越长、耗时越久——远距离出招读作"反身扑击"，
+            # 而不是原地被拽到对手脸上
+            reach = max(40.0, min(150.0, dist - 46))
+            dur = 0.24 + min(0.28, dist * 0.0014)
             n = dist or 1.0
             ch = self.ch[side]
-            ch["dash"] = {"t": 0.0, "dur": 0.24,
+            ch["dash"] = {"t": 0.0, "dur": dur,
                           "sx": sx, "sy": sy,
                           "tx": sx + (tx - sx) / n * reach,
                           "ty": sy + (ty - sy) / n * reach}
             ch["thd"] = math.degrees(math.atan2(ty - sy, tx - sx))
+            ch["mode"], ch["mode_t"] = "wander", 0.5   # 出完招先稳一下再决定走位
             if t == "hit":
                 self.fx["flash"][1 - side] = 0.22
                 if e.get("crit"):
