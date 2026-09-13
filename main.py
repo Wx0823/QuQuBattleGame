@@ -64,7 +64,6 @@ class Bridge(QObject):
     key = Signal()
     press = Signal()
     release = Signal()
-    right = Signal()
 
 
 class Pet(QWidget):
@@ -87,6 +86,7 @@ class Pet(QWidget):
 
         self._dragging = False
         self._offset = None
+        self._right_down = False  # 右键已按下、尚未抬起
         self._menu_t = 0.0        # 上次弹菜单的时间，用于防重复弹出
         self._pending = 0          # 待汇总显示的经验
         self._pending_t = 0.0
@@ -181,7 +181,9 @@ class Pet(QWidget):
         self.bridge.key.connect(self._on_key)
         self.bridge.press.connect(self._on_press)
         self.bridge.release.connect(self._on_release)
-        self.bridge.right.connect(self._show_menu)
+        # 注意：右键菜单不走全局钩子 —— 钩子在“按下”瞬间就弹菜单，
+        # 随后的“抬起”会被菜单窗口当作外部点击，菜单一闪而过。
+        # 右键统一由 Qt 的 mousePress/Release 事件对处理，抬起时再弹。
 
         self.kb = keyboard.Listener(on_press=self._hook_key)
         self.ms = mouse.Listener(on_click=self._hook_click)
@@ -255,10 +257,9 @@ class Pet(QWidget):
         self.bridge.key.emit()
 
     def _hook_click(self, x, y, button, pressed) -> None:
+        # 只关心左键（加经验）；右键菜单由 Qt 事件处理，见 _init_hook
         if button == mouse.Button.left:
             self.bridge.press.emit() if pressed else self.bridge.release.emit()
-        elif button == mouse.Button.right and pressed:
-            self.bridge.right.emit()
 
     # ---------- 主线程槽 ----------
 
@@ -400,19 +401,27 @@ class Pet(QWidget):
     # ---------- 交互 ----------
 
     def contextMenuEvent(self, event) -> None:
-        """右键落在 mask 内时走这里 —— 事件已被窗口吃掉，不会再漏给桌面。"""
+        """只吞掉系统合成的右键菜单事件，不再在这里弹菜单。
+
+        菜单统一在 mouseReleaseEvent（右键抬起）时弹出 —— 若在这里
+        （按下阶段）弹，随后的抬起会被菜单当作外部点击，菜单一闪而过。
+        """
         event.accept()
-        self._show_menu()
 
     def mousePressEvent(self, event) -> None:
         """左键按下：显式 grabMouse 捕获鼠标，后续消息全归本窗口。
 
         桌面看不到 LBUTTONDOWN，自然也就不会拉选区。
+        右键只记录“已按下”，抬起时才弹菜单（Windows 惯例）。
         """
         if event.button() == Qt.MouseButton.LeftButton:
             self.grabMouse()
             self._dragging = True
             self._offset = event.globalPosition().toPoint() - self.pos()
+            event.accept()
+            return
+        if event.button() == Qt.MouseButton.RightButton:
+            self._right_down = True
             event.accept()
             return
         super().mousePressEvent(event)
@@ -433,10 +442,17 @@ class Pet(QWidget):
             self.save()
             event.accept()
             return
+        if (event.button() == Qt.MouseButton.RightButton
+                and self._right_down):
+            self._right_down = False
+            event.accept()
+            # 按下/抬起都已由本窗口消化，此刻弹菜单不会再被“抬起”关掉
+            self._show_menu()
+            return
         super().mouseReleaseEvent(event)
 
     def _show_menu(self) -> None:
-        # 防重入：Qt 事件与全局钩子都可能触发，0.4 秒内只弹一次
+        # 防重入：0.4 秒内只弹一次（连点右键不会疯狂闪菜单）
         now = time.monotonic()
         if now - self._menu_t < 0.4:
             return
