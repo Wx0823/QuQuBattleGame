@@ -22,7 +22,7 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_FILE = os.path.join(APP_DIR, "save.json")
 LOG_FILE = os.path.join(APP_DIR, "error.log")
 
-from PySide6.QtCore import QObject, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QRectF, QSharedMemory, Qt, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QCursor, QFont, QIcon,
                            QPainter, QPen, QPixmap, QRegion)
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
@@ -404,6 +404,37 @@ class Pet(QWidget):
         event.accept()
         self._show_menu()
 
+    def mousePressEvent(self, event) -> None:
+        """左键按下：显式 grabMouse 捕获鼠标，后续消息全归本窗口。
+
+        桌面看不到 LBUTTONDOWN，自然也就不会拉选区。
+        """
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.grabMouse()
+            self._dragging = True
+            self._offset = event.globalPosition().toPoint() - self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+            self.move(event.globalPosition().toPoint() - self._offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self._dragging):
+            self.releaseMouse()
+            self._dragging = False
+            self._clamp_into_screen()
+            self.save()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
     def _show_menu(self) -> None:
         # 防重入：Qt 事件与全局钩子都可能触发，0.4 秒内只弹一次
         now = time.monotonic()
@@ -492,6 +523,12 @@ def main() -> None:
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+
+    # 单实例锁：重复启动会出现好几只蛐蛐、右键也会弹出好几个菜单
+    guard = QSharedMemory("QuQuBattleGame.SingleInstance")
+    if not guard.create(1):
+        print("电子斗蛐蛐已经在运行了")
+        sys.exit(0)
 
     pet = Pet()
     pet.place_initial()
