@@ -4,6 +4,9 @@ smoke_save.json
 error.log
 *.log
 
+# 本地外观偏好（大小/置顶等因人而异，不入库）
+data/settings.json
+
 # Python
 __pycache__/
 *.py[cod]

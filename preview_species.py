@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""离屏渲染：不同品种的配色对比 + 属性面板，用于验收数值表驱动效果。
+"""离屏渲染预览：品种配色 / 缩放对比 / 属性面板 / 设置面板。
 
 用法: python preview_species.py
-产物: docs/preview_species.png, docs/preview_panel.png
+产物: docs/ 下的 preview_*.png
 """
 
 from __future__ import annotations
@@ -21,20 +21,38 @@ import main as M
 M.Pet._init_hook = lambda self: None
 M.Pet._init_tray = lambda self: None
 
-app = QApplication(sys.argv)
+DOCS = os.path.join(HERE, "docs")
+os.makedirs(DOCS, exist_ok=True)
 
+app = QApplication(sys.argv)
 pet = M.Pet()
 pet.level = 12
 pet.talents = ["t001", "t006"]
 pet.recompute()
 
+
+def grab_panel(panel, name: str) -> None:
+    """面板必须先真正 show 一次，Qt 才会完成布局计算。"""
+    panel.show()
+    app.processEvents()
+    if hasattr(panel, "refresh"):
+        panel.refresh()
+        app.processEvents()
+    img = QImage(panel.width(), panel.height(), QImage.Format.Format_ARGB32)
+    img.fill(QColor(30, 36, 46))
+    panel.render(img)
+    path = os.path.join(DOCS, name)
+    img.save(path)
+    panel.hide()
+    print("saved", path)
+
+
+# ---------- 1. 品种配色对比 ----------
 ids = ["c001", "c002", "c003", "c004", "c005", "c006"]
 cols, rows = 3, 2
 img = QImage(M.WIN_W * cols, M.WIN_H * rows, QImage.Format.Format_ARGB32)
 img.fill(QColor("#EDF2E4"))
 p = QPainter(img)
-p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
 for i, sid in enumerate(ids):
     sp = pet.db.species(sid)
     if not sp:
@@ -44,28 +62,34 @@ for i, sid in enumerate(ids):
     x = (i % cols) * M.WIN_W
     y = (i // cols) * M.WIN_H
     p.drawPixmap(x, y, pet.grab())
-    p.setPen(QColor("#3A4A2A"))
-    p.drawText(x + 10, y + 18, f"{sp['名称']} {sp['主色']}")
 p.end()
+img.save(os.path.join(DOCS, "preview_species.png"))
+print("saved preview_species.png")
 
-out1 = os.path.join(HERE, "docs", "preview_species.png")
-img.save(out1)
-print("saved", out1)
-
-# 属性面板
+# ---------- 2. 缩放对比 ----------
 pet.set_species("c001")
-pet.talents = ["t001", "t006"]
-pet.recompute()
-panel = pet.panel
-# 必须先真正 show 一次，Qt 才会完成布局计算，否则抓图会出现文字重叠
-panel.show()
-app.processEvents()
-panel.refresh()
-app.processEvents()
-pimg = QImage(panel.W, panel.H, QImage.Format.Format_ARGB32)
-pimg.fill(QColor(30, 36, 46))
-panel.render(pimg)
-out2 = os.path.join(HERE, "docs", "preview_panel.png")
-pimg.save(out2)
-panel.hide()
-print("saved", out2)
+pet.repaint()
+cell, h = 320, 360
+img2 = QImage(cell * 3, h, QImage.Format.Format_ARGB32)
+img2.fill(QColor("#EDF2E4"))
+p = QPainter(img2)
+for i, z in enumerate([0.7, 1.0, 1.5]):
+    pet.set_zoom(z)
+    pet.repaint()
+    px = pet.grab()
+    # grab() 返回的是物理像素（高分屏 dpr>1），居中排版要用逻辑尺寸
+    dpr = px.devicePixelRatio() or 1.0
+    lw, lh = int(px.width() / dpr), int(px.height() / dpr)
+    p.drawPixmap(i * cell + (cell - lw) // 2, h - lh, px)
+    p.setPen(QColor("#3A4A2A"))
+    p.drawText(i * cell + 12, 24, f"{int(z * 100)}%   窗口 {lw} x {lh}")
+p.end()
+img2.save(os.path.join(DOCS, "preview_zoom.png"))
+print("saved preview_zoom.png")
+
+# ---------- 3. 面板 ----------
+pet.set_zoom(1.0)
+pet.set_species("c001")
+pet.repaint()
+grab_panel(pet.panel, "preview_panel.png")
+grab_panel(pet.settings_panel, "preview_settings.png")

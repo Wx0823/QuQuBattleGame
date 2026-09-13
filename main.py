@@ -31,8 +31,10 @@ from pynput.keyboard import Key
 
 from cricket import Cricket, paint_cricket, palette_from_hex
 from panel import StatsPanel
+from settings import Settings, SettingsPanel
 from stats import StatsDB
 
+# 基准尺寸，实际显示尺寸 = 基准 × 缩放（设置面板可调）
 WIN_W, WIN_H = 190, 208
 CX = 98.0
 FOOT_Y = 155.0
@@ -74,7 +76,9 @@ class Pet(QWidget):
 
         # 数值表驱动：品种 + 等级 + 天赋 -> 最终属性
         self.db = StatsDB()
-        self.species_id = "c001"
+        self.settings = Settings()
+        self.zoom = self.settings.zoom
+        self.species_id = self.settings.species_id
         self.talents = []
         self.stats = {}
         self.palette = None
@@ -91,7 +95,9 @@ class Pet(QWidget):
         self._load()
         self.recompute()  # 读档后按存档的品种/等级重算
         self._init_window()
-        self.panel = StatsPanel(self)  # 必须在钩子启动前建好
+        # 必须在钩子启动前建好，否则首次按键可能访问到尚未创建的面板
+        self.panel = StatsPanel(self)
+        self.settings_panel = SettingsPanel(self)
         self._init_tray()
         self._init_hook()
 
@@ -103,31 +109,48 @@ class Pet(QWidget):
     # ---------- 初始化 ----------
 
     def _init_window(self) -> None:
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
-            | Qt.WindowType.WindowDoesNotAcceptFocus
-        )
+        self.apply_flags()
+        self.apply_zoom()
+
+    def apply_flags(self) -> None:
+        """置顶开关。改 flags 会隐藏窗口，所以要重新 show。"""
+        flags = (Qt.WindowType.FramelessWindowHint
+                 | Qt.WindowType.Tool
+                 | Qt.WindowType.WindowDoesNotAcceptFocus)
+        if self.settings.always_top:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        was_visible = self.isVisible()
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self.setFixedSize(WIN_W, WIN_H)
         self.setWindowTitle("电子斗蛐蛐")
+        if was_visible:
+            self.show()
+
+    def apply_zoom(self) -> None:
+        """按缩放值调整窗口尺寸。"""
+        f = self.zoom
+        self.setFixedSize(max(60, int(WIN_W * f)), max(60, int(WIN_H * f)))
+        self._clamp_into_screen()
+        self.update()
+
+    def set_zoom(self, z: float) -> None:
+        self.zoom = max(0.6, min(2.0, float(z)))
+        self.apply_zoom()
 
     def _init_tray(self) -> None:
         self.tray = QSystemTrayIcon(_make_icon(), self)
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
-        act_panel = QAction("查看属性", self)
-        act_panel.triggered.connect(self._toggle_panel)
-        act_reset = QAction("重置蛐蛐", self)
-        act_reset.triggered.connect(self._reset)
-        act_quit = QAction("退出", self)
+        act_attr = QAction("蛐蛐属性", self)
+        act_attr.triggered.connect(self._toggle_panel)
+        act_cfg = QAction("蛐蛐设置", self)
+        act_cfg.triggered.connect(self._toggle_settings)
+        act_quit = QAction("退出游戏", self)
         act_quit.triggered.connect(self._quit)
-        menu.addAction(act_panel)
-        menu.addSeparator()
-        menu.addAction(act_reset)
+        menu.addAction(act_attr)
+        menu.addAction(act_cfg)
         menu.addSeparator()
         menu.addAction(act_quit)
         self.tray.setContextMenu(menu)
@@ -202,7 +225,8 @@ class Pet(QWidget):
             self.move(*self._start_pos)
             return
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(screen.right() - WIN_W - 40, screen.bottom() - WIN_H - 60)
+        self.move(screen.right() - self.width() - 40,
+                  screen.bottom() - self.height() - 60)
 
     # ---------- 全局钩子回调（子线程） ----------
 
@@ -293,58 +317,65 @@ class Pet(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
+        f = self.zoom
+
         if self.levelup_t > 0:
             k = self.levelup_t / 1.8
+            gw = 124 * f * (1.6 - k * 0.6)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(QColor(242, 178, 51, int(70 * k))))
-            p.drawEllipse(QRectF(CX - 62 * (1.6 - k * 0.6), FOOT_Y - 96,
-                                 124 * (1.6 - k * 0.6), 104))
+            p.drawEllipse(QRectF(CX * f - gw / 2, (FOOT_Y - 96) * f, gw, 104 * f))
 
-        paint_cricket(p, CX, FOOT_Y, SCALE, self.cricket, self.palette)
+        paint_cricket(p, CX * f, FOOT_Y * f, SCALE * f, self.cricket, self.palette)
 
-        self._draw_floats(p)
-        self._draw_bar(p)
+        self._draw_floats(p, f)
+        if self.settings.show_bar:
+            self._draw_bar(p, f)
         p.end()
 
-    def _draw_floats(self, p: QPainter) -> None:
-        font = QFont("Microsoft YaHei", 10)
+    def _draw_floats(self, p: QPainter, f: float) -> None:
+        size = max(8, min(17, int(10 * f)))
+        font = QFont("Microsoft YaHei", size)
         font.setWeight(QFont.Weight.DemiBold)
         p.setFont(font)
         for text, dx, dy, life, max_life, color in self.floats:
             alpha = min(1.0, life / (max_life * 0.5))
             c = QColor(color)
             c.setAlphaF(alpha)
+            r = QRectF((CX + dx) * f - 60 * f, (FOOT_Y - 128) * f - dy * f,
+                       120 * f, 22 * f)
             p.setPen(QPen(QColor(0, 0, 0, int(120 * alpha)), 3.0))
-            p.drawText(QRectF(CX + dx - 60, FOOT_Y - 128 - dy, 120, 22),
-                       Qt.AlignmentFlag.AlignCenter, text)
+            p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
             p.setPen(QPen(c, 1.0))
-            p.drawText(QRectF(CX + dx - 60, FOOT_Y - 128 - dy, 120, 22),
-                       Qt.AlignmentFlag.AlignCenter, text)
+            p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
 
-    def _draw_bar(self, p: QPainter) -> None:
+    def _draw_bar(self, p: QPainter, f: float) -> None:
         need = self.db.exp_need(self.level)
         ratio = max(0.0, min(1.0, self.xp / need))
-        x, y, w, h = 34.0, 170.0, 122.0, 9.0
+        x, y, w, h = 34.0 * f, 170.0 * f, 122.0 * f, 9.0 * f
 
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(QColor(0, 0, 0, 95)))
-        p.drawRoundedRect(QRectF(x, y, w, h), 4.5, 4.5)
+        p.drawRoundedRect(QRectF(x, y, w, h), 4.5 * f, 4.5 * f)
         p.setBrush(QBrush(QColor("#8FD14F")))
-        p.drawRoundedRect(QRectF(x, y, w * ratio, h), 4.5, 4.5)
+        p.drawRoundedRect(QRectF(x, y, w * ratio, h), 4.5 * f, 4.5 * f)
         p.setBrush(QBrush(QColor(255, 255, 255, 70)))
-        p.drawRoundedRect(QRectF(x + 1, y + 1, max(0.0, w * ratio - 2), 3), 1.5, 1.5)
+        p.drawRoundedRect(QRectF(x + 1, y + 1, max(0.0, w * ratio - 2), 3 * f),
+                          1.5 * f, 1.5 * f)
 
         # 文字底衬：桌面上背景不可控，加个深色胶囊保证任何壁纸下都能看清
+        cap_w, cap_h = 108 * f, 19 * f
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(QColor(0, 0, 0, 135)))
-        p.drawRoundedRect(QRectF(x + w / 2 - 54, y + 12, 108, 19), 9.5, 9.5)
+        p.drawRoundedRect(QRectF(x + w / 2 - cap_w / 2, y + 12 * f, cap_w, cap_h),
+                          9.5 * f, 9.5 * f)
 
-        font = QFont("Microsoft YaHei", 9)
+        font = QFont("Microsoft YaHei", max(8, min(14, int(9 * f))))
         font.setWeight(QFont.Weight.DemiBold)
         p.setFont(font)
         label = f"Lv.{self.level}  {self.xp} / {need}"
         p.setPen(QPen(QColor(255, 255, 255, 230), 1.0))
-        p.drawText(QRectF(x + w / 2 - 54, y + 12, 108, 19),
+        p.drawText(QRectF(x + w / 2 - cap_w / 2, y + 12 * f, cap_w, cap_h),
                    Qt.AlignmentFlag.AlignCenter, label)
 
     # ---------- 交互 ----------
@@ -354,15 +385,14 @@ class Pet(QWidget):
             return
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
-        act_panel = QAction("查看属性", self)
-        act_panel.triggered.connect(self._toggle_panel)
-        act_reset = QAction("重置蛐蛐", self)
-        act_reset.triggered.connect(self._reset)
-        act_quit = QAction("退出", self)
+        act_attr = QAction("蛐蛐属性", self)
+        act_attr.triggered.connect(self._toggle_panel)
+        act_cfg = QAction("蛐蛐设置", self)
+        act_cfg.triggered.connect(self._toggle_settings)
+        act_quit = QAction("退出游戏", self)
         act_quit.triggered.connect(self._quit)
-        menu.addAction(act_panel)
-        menu.addSeparator()
-        menu.addAction(act_reset)
+        menu.addAction(act_attr)
+        menu.addAction(act_cfg)
         menu.addSeparator()
         menu.addAction(act_quit)
         menu.exec(QCursor.pos())
@@ -372,10 +402,17 @@ class Pet(QWidget):
             self.panel.hide()
         else:
             self.panel.show_near(self)
+            self.panel.portrait.timer.start()
+
+    def _toggle_settings(self) -> None:
+        if self.settings_panel.isVisible():
+            self.settings_panel.hide()
+        else:
+            self.settings_panel.show_near(self)
 
     def _clamp_into_screen(self) -> None:
         screen = QApplication.primaryScreen().availableGeometry()
-        nx = min(max(self.x(), screen.left() - WIN_W + 70), screen.right() - 70)
+        nx = min(max(self.x(), screen.left() - self.width() + 70), screen.right() - 70)
         ny = min(max(self.y(), screen.top()), screen.bottom() - 70)
         self.move(nx, ny)
 

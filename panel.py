@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
-"""蛐蛐属性面板。
+"""面板组件。
 
-数据全部来自数值表（stats.StatsDB），面板只负责展示。
-可拖动，右上角关闭，再次打开会刷新为最新数值。
+CardPanel     通用深色卡片窗口（圆角、可拖动、右上角关闭），设置面板与属性面板共用
+CricketPortrait  蛐蛐大头照，会跟着主程序的状态动（呼吸/眨眼）
+StatsPanel    属性面板：大头照 + 等级经验 + 全部属性 + 天赋 + 战力
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPoint, QRectF
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QRectF, QTimer
+from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
+                               QPushButton, QVBoxLayout, QWidget)
 
+from cricket import paint_cricket
 from stats import StatsDB, fmt_num
 
 BG = QColor(26, 32, 42, 238)
@@ -18,51 +21,31 @@ LINE = QColor(255, 255, 255, 28)
 TXT = "#E8EDF2"
 SUB = "#8B97A6"
 ACCENT = "#8FD14F"
+FADE = "#55606E"
 
 
-class StatsPanel(QWidget):
-    W, H = 296, 392
+class CardPanel(QWidget):
+    """通用深色卡片窗口：无边框、圆角、可拖动、右上角关闭。"""
 
-    ROWS = [
-        ("血量", "#FF7B72"),
-        ("耐力", "#79C0FF"),
-        ("攻击", "#FFA657"),
-        ("护甲", "#A5D6FF"),
-        ("速度", "#D2A8FF"),
-        ("出手间隔", SUB),
-        ("护甲减伤", SUB),
-    ]
-
-    def __init__(self, pet):
+    def __init__(self, title: str, w: int, h: int):
         super().__init__()
-        self.pet = pet
-        self.db = StatsDB()
-        self._drag = None
-
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(self.W, self.H)
-        self.setWindowTitle("蛐蛐属性")
+        self.setFixedSize(w, h)
+        self.setWindowTitle(title)
+        self._drag = None
+        self._title_text = title
 
-        self._build()
-        self.refresh()
-
-    # ---------- UI ----------
-
-    def _build(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(18, 14, 18, 16)
-        root.setSpacing(6)
-
+    def build_header(self, root: QVBoxLayout) -> None:
         head = QHBoxLayout()
-        self.title = QLabel("蛐蛐")
-        self.title.setStyleSheet(f"color:{TXT}; font-size:15px; font-weight:600;")
-        self.title.setFont(QFont("Microsoft YaHei", 11))
-        head.addWidget(self.title)
+        t = QLabel(self._title_text)
+        t.setFont(QFont("Microsoft YaHei", 11))
+        t.setStyleSheet(f"color:{TXT}; font-size:15px; font-weight:600;")
+        head.addWidget(t)
         head.addStretch()
         btn = QPushButton("✕")
         btn.setFixedSize(22, 22)
@@ -75,17 +58,148 @@ class StatsPanel(QWidget):
         head.addWidget(btn)
         root.addLayout(head)
 
-        self.sub = QLabel("")
-        self.sub.setStyleSheet(f"color:{SUB}; font-size:11px;")
-        root.addWidget(self.sub)
+    def sep(self) -> QLabel:
+        """分隔线。不用 QFrame —— 离屏渲染时 QFrame 会画出多余底块。"""
+        f = QLabel()
+        f.setFixedHeight(1)
+        f.setStyleSheet("background-color: rgba(255,255,255,0.10); border: none;")
+        return f
 
-        root.addSpacing(6)
-        root.addWidget(self._sep())
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(BG)
+        r = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
+        p.drawRoundedRect(r, 14, 14)
+        p.setPen(LINE)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(r, 14, 14)
+        p.end()
 
-        # 属性行一次性建好，刷新时只改文本 —— 避免反复创建销毁造成重影
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag = e.globalPosition().toPoint() - self.pos()
+            e.accept()
+
+    def mouseMoveEvent(self, e) -> None:
+        if self._drag is not None:
+            self.move(e.globalPosition().toPoint() - self._drag)
+            e.accept()
+
+    def mouseReleaseEvent(self, e) -> None:
+        self._drag = None
+
+    def show_near(self, anchor: QWidget) -> None:
+        """显示在蛐蛐旁边，默认左侧，放不下就放右侧。"""
+        g = anchor.frameGeometry()
+        x = g.left() - self.width() - 12
+        if x < 0:
+            x = g.right() + 12
+        y = max(0, min(g.bottom() - self.height(), g.top()))
+        self.move(x, y)
+        self.show()
+        self.raise_()
+
+
+class CricketPortrait(QWidget):
+    """蛐蛐大头照。复用主程序的 Cricket 状态，所以会呼吸、眨眼、偶尔蹦一下。"""
+
+    def __init__(self, pet, size: int = 118):
+        super().__init__()
+        self.pet = pet
+        self.size = size
+        self.setFixedSize(size, size)
+        self.timer = QTimer(self)
+        self.timer.setInterval(80)
+        self.timer.timeout.connect(self.update)
+
+    def showEvent(self, e) -> None:
+        self.timer.start()
+
+    def hideEvent(self, e) -> None:
+        self.timer.stop()
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        s = self.size
+        # 底托
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 14))
+        p.drawEllipse(QRectF(2, 2, s - 4, s - 4))
+
+        scale = s / 108.0
+        cx = s / 2 - 6 * scale      # 蛐蛐本地 x 中心偏右 7，往左拉回一点
+        foot_y = s * 0.90
+        paint_cricket(p, cx, foot_y, scale, self.pet.cricket, self.pet.palette)
+        p.end()
+
+
+class StatsPanel(CardPanel):
+    W, H = 320, 452
+
+    ROWS = [
+        ("血量", "#FF7B72"),
+        ("耐力", "#79C0FF"),
+        ("攻击", "#FFA657"),
+        ("护甲", "#A5D6FF"),
+        ("速度", "#D2A8FF"),
+        ("出手间隔", SUB),
+        ("护甲减伤", SUB),
+    ]
+
+    def __init__(self, pet):
+        super().__init__("蛐蛐属性", self.W, self.H)
+        self.pet = pet
+        self.db = StatsDB()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 14, 18, 16)
+        root.setSpacing(6)
+        self.build_header(root)
+
+        # ---- 大头照 + 等级经验 ----
+        top = QHBoxLayout()
+        top.setSpacing(14)
+        self.portrait = CricketPortrait(pet, 118)
+        top.addWidget(self.portrait)
+
+        info = QVBoxLayout()
+        info.setSpacing(4)
+        self.name = QLabel("蛐蛐")
+        self.name.setFont(QFont("Microsoft YaHei", 12))
+        self.name.setStyleSheet(f"color:{TXT}; font-size:19px; font-weight:600;")
+        info.addWidget(self.name)
+
+        self.meta = QLabel("")
+        self.meta.setStyleSheet(f"color:{SUB}; font-size:11px;")
+        info.addWidget(self.meta)
+
+        info.addSpacing(6)
+        self.bar = QProgressBar()
+        self.bar.setFixedHeight(9)
+        self.bar.setTextVisible(False)
+        self.bar.setStyleSheet(
+            "QProgressBar{background:rgba(255,255,255,0.10); border:none; border-radius:4px;}"
+            "QProgressBar::chunk{background:#8FD14F; border-radius:4px;}"
+        )
+        info.addWidget(self.bar)
+
+        self.exp = QLabel("")
+        self.exp.setStyleSheet(f"color:{SUB}; font-size:11px;")
+        info.addWidget(self.exp)
+        info.addStretch()
+        top.addLayout(info, 1)
+        root.addLayout(top)
+
+        root.addSpacing(8)
+        root.addWidget(self.sep())
+        root.addSpacing(4)
+
         self.grid = QGridLayout()
         self.grid.setSpacing(5)
-        self.grid.setColumnStretch(0, 0)
         root.addLayout(self.grid)
         self._rows = []
         for i, (name, color) in enumerate(self.ROWS):
@@ -97,20 +211,20 @@ class StatsPanel(QWidget):
             self.grid.addWidget(v, i, 1)
             self._rows.append(v)
 
+        root.addSpacing(6)
+        root.addWidget(self.sep())
         root.addSpacing(4)
-        root.addWidget(self._sep())
-        root.addSpacing(2)
 
         self.sec = QLabel("")
         self.sec.setStyleSheet(f"color:{SUB}; font-size:11px;")
         root.addWidget(self.sec)
 
+        root.addSpacing(4)
+        root.addWidget(self.sep())
         root.addSpacing(2)
-        root.addWidget(self._sep())
 
         self.talent = QLabel("天赋：无")
         self.talent.setStyleSheet(f"color:{TXT}; font-size:11px;")
-        self.talent.setWordWrap(True)
         root.addWidget(self.talent)
 
         root.addStretch()
@@ -125,24 +239,20 @@ class StatsPanel(QWidget):
         foot.addWidget(self.power)
         root.addLayout(foot)
 
-    def _sep(self) -> QLabel:
-        """分隔线。用 QLabel 而不是 QFrame —— QFrame 在离屏渲染时会画出多余底块。"""
-        f = QLabel()
-        f.setFixedHeight(1)
-        f.setStyleSheet("background-color: rgba(255,255,255,0.10); border: none;")
-        return f
-
-    # ---------- 数据 ----------
+        self.refresh()
 
     def refresh(self) -> None:
         pet = self.pet
         sp = self.db.species(pet.species_id) or {}
         stats = pet.stats
+        need = self.db.exp_need(pet.level)
 
-        self.title.setText(f"{sp.get('名称', '蛐蛐')}  Lv.{pet.level}")
-        self.sub.setText(
-            f"{sp.get('稀有度', '')} · 已累计 {pet.total_xp} 经验 · "
-            f"再 {max(0, self.db.exp_need(pet.level) - pet.xp)} 升级"
+        self.name.setText(f"{sp.get('名称', '蛐蛐')}  Lv.{pet.level}")
+        self.meta.setText(f"{sp.get('稀有度', '')} · {sp.get('描述', '')}")
+        self.bar.setMaximum(max(1, need))
+        self.bar.setValue(min(int(pet.xp), need))
+        self.exp.setText(
+            f"经验 {pet.xp} / {need}　（还差 {max(0, need - pet.xp)}）　累计 {pet.total_xp}"
         )
 
         iv = self.db.attack_interval(stats.get("spd", 1))
@@ -170,49 +280,11 @@ class StatsPanel(QWidget):
             f"士气 {fmt_num(stats.get('morale', 100))}"
         )
 
-        names = []
-        for tid in pet.talents:
-            t = self.db.talent(tid)
-            if t:
-                names.append(t.get("名称", tid))
+        names = [self.db.talent(t).get("名称", t)
+                 for t in pet.talents if self.db.talent(t)]
         self.talent.setText("天赋：" + ("、".join(names) if names else "无"))
-
         self.power.setText(fmt_num(round(self.db.power(stats))))
 
-    # ---------- 行为 ----------
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(BG)
-        p.drawRoundedRect(QRectF(0.5, 0.5, self.W - 1, self.H - 1), 14, 14)
-        p.setPen(QPen(LINE, 1))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(QRectF(0.5, 0.5, self.W - 1, self.H - 1), 14, 14)
-        p.end()
-
-    def mousePressEvent(self, e) -> None:
-        if e.button() == Qt.MouseButton.LeftButton:
-            self._drag = e.globalPosition().toPoint() - self.pos()
-            e.accept()
-
-    def mouseMoveEvent(self, e) -> None:
-        if self._drag is not None:
-            self.move(e.globalPosition().toPoint() - self._drag)
-            e.accept()
-
-    def mouseReleaseEvent(self, e) -> None:
-        self._drag = None
-
     def show_near(self, anchor: QWidget) -> None:
-        """显示在蛐蛐旁边，默认放左侧，放不下就放右侧。"""
         self.refresh()
-        g = anchor.frameGeometry()
-        x = g.left() - self.W - 12
-        if x < 0:
-            x = g.right() + 12
-        y = max(0, g.bottom() - self.H)
-        self.move(x, y)
-        self.show()
-        self.raise_()
+        super().show_near(anchor)

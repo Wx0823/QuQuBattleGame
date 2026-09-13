@@ -74,7 +74,7 @@
   <h1>电子斗蛐蛐 · QuQuBattleGame</h1>
   <div class="sub">
     Windows 桌面宠物养成 + 蛐蛐对战 &nbsp;·&nbsp; Python + PySide6 &nbsp;·&nbsp;
-    当前版本 <strong>v0.1</strong> <span class="badge b-done">已交付</span>
+    当前版本 <strong>v0.3</strong> <span class="badge b-done">已交付</span>
   </div>
 
   <div class="panel">
@@ -91,23 +91,28 @@
         <td>Excel 数值表驱动全部数值；品种/成长/招式/克制/状态/常数/天赋；属性面板</td>
         <td><span class="badge b-done">已交付</span></td>
       </tr>
+      <tr class="done">
+        <td><strong>v0.3</strong></td><td>交互界面与设置</td>
+        <td>右键功能菜单、设置面板（大小/经验条/置顶/品种）、属性面板大头照</td>
+        <td><span class="badge b-done">已交付</span></td>
+      </tr>
       <tr>
-        <td><strong>v0.3</strong></td><td>状态条与喂食</td>
-        <td>饱食度·心情·体力三条状态；食物道具、喂食互动、训练小游戏</td>
+        <td><strong>v0.4</strong></td><td>状态条与喂食</td>
+        <td>饱食度·心情·体力；食物道具、喂食互动、训练小游戏</td>
         <td><span class="badge b-next">下一版</span></td>
       </tr>
       <tr>
-        <td><strong>v0.4</strong></td><td>斗蛐蛐对战</td>
-        <td>回合制自动战斗、NPC 对手梯度、战斗表现与奖励结算</td>
+        <td><strong>v0.5</strong></td><td>斗蛐蛐对战</td>
+        <td>回合制自动战斗、招式博弈、士气与逃跑、战斗表现</td>
         <td><span class="badge b-todo">待开始</span></td>
       </tr>
       <tr>
-        <td><strong>v0.5</strong></td><td>擂台与天赋</td>
+        <td><strong>v0.6</strong></td><td>擂台与天赋</td>
         <td>天梯连胜排名、随机天赋词条、装备信物</td>
         <td><span class="badge b-todo">待开始</span></td>
       </tr>
       <tr>
-        <td><strong>v0.6</strong></td><td>收集与图鉴</td>
+        <td><strong>v0.7</strong></td><td>收集与图鉴</td>
         <td>捕捉孵化、品种外观差异、图鉴收集度、多蛐蛐切换出战</td>
         <td><span class="badge b-todo">待开始</span></td>
       </tr>
@@ -157,7 +162,23 @@
     </div>
 
     <div class="ver">
-      <div class="ver-tag next">v0.3<small>下一版</small></div>
+      <div class="ver-tag done">v0.3<small>已交付</small></div>
+      <div class="ver-body">
+        <div class="ver-title">交互界面与设置</div>
+        <div class="ver-desc">把蛐蛐从"能看"变成"能操作"——右键出功能菜单。</div>
+        <ul>
+          <li>右键蛐蛐弹出功能菜单：<strong>蛐蛐属性 / 蛐蛐设置 / 退出游戏</strong></li>
+          <li><strong>蛐蛐设置面板</strong>：大小滑块（60%~200%，拖动即时预览）、显示经验条、始终置顶、品种预览</li>
+          <li><strong>属性面板加大头照</strong>：蛐蛐头像会呼吸眨眼（复用主程序动画状态）</li>
+          <li>属性面板补上等级、经验条、还差多少升级、累计经验</li>
+          <li>缩放系统：整个桌宠（蛐蛐+经验条+文字）等比缩放，会自动吸附回屏幕内</li>
+          <li>设置与存档分离（<code>data/settings.json</code>），重置蛐蛐不会清掉外观偏好</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="ver">
+      <div class="ver-tag next">v0.4<small>下一版</small></div>
       <div class="ver-body">
         <div class="ver-title">状态条与喂食</div>
         <div class="ver-desc">给蛐蛐加上"要照顾"的需求，把挂机涨经验变成主动养蛐蛐。</div>
@@ -172,7 +193,7 @@
     </div>
 
     <div class="ver">
-      <div class="ver-tag">v0.4<small>待开始</small></div>
+      <div class="ver-tag">v0.5<small>待开始</small></div>
       <div class="ver-body">
         <div class="ver-title">斗蛐蛐对战 <span class="badge b-next">核心玩法</span></div>
         <div class="ver-desc">项目名字里的"斗"，玩法真正成立的一版。全部数值取自数值表。</div>
@@ -194,7 +215,7 @@
     </div>
 
     <div class="ver">
-      <div class="ver-tag">v0.5<small>待开始</small></div>
+      <div class="ver-tag">v0.6<small>待开始</small></div>
       <div class="ver-body">
         <div class="ver-title">擂台与天赋</div>
         <div class="ver-desc">给长期玩提供目标和随机性。</div>
@@ -208,7 +229,7 @@
     </div>
 
     <div class="ver">
-      <div class="ver-tag">v0.6<small>待开始</small></div>
+      <div class="ver-tag">v0.7<small>待开始</small></div>
       <div class="ver-body">
         <div class="ver-title">收集与图鉴</div>
         <div class="ver-desc">从"一只蛐蛐"扩展到"一群蛐蛐"。</div>
