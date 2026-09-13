@@ -27,14 +27,19 @@ def check(name: str, ok: bool, note: str = "") -> None:
     print(("  PASS " if ok else "  FAIL ") + name + (f"  [{note}]" if note else ""))
 
 
+def _random_fighter(side: int):
+    """随机品种 + 随机等级，贴近真实对局的属性分布。"""
+    sid = random.choice(db.species_ids())
+    lv = random.randint(3, 14)
+    sp = db.species(sid) or {}
+    return {"name": f"{sp.get('名称', sid)}{side}", "side": side, "level": lv,
+            "stats": db.compute(sid, lv)[0]}
+
+
 def run_battle(seed, la=None, ra=None, max_ticks=2000):
     """构建一场战斗并跑完，返回 (battle, 全部事件)。"""
-    la = la or {"name": "左军", "side": 0, "level": 10, "stats": {
-        "hp": 175, "sta": 73, "atk": 29, "arm": 31, "spd": 25,
-        "sta_regen": 7, "crit": 8, "guts": 70, "morale": 100, "pen": 0}}
-    ra = ra or {"name": "右军", "side": 1, "level": 10, "stats": {
-        "hp": 160, "sta": 80, "atk": 27, "arm": 25, "spd": 22,
-        "sta_regen": 6, "crit": 5, "guts": 50, "morale": 100, "pen": 0}}
+    la = la or _random_fighter(0)
+    ra = ra or _random_fighter(1)
     b = Battle(db, Fighter(**la), Fighter(**ra), seed=seed)
     events = []
     for _ in range(max_ticks):
@@ -55,27 +60,33 @@ def main() -> int:
     check("公式·零护甲全额", abs(d2 - 100) < 0.01, f"→{d2}")
     check("公式·保底伤害", abs(d3 - 1) < 0.01, f"→{d3}")
 
-    # 2. 确定性：同种子两次战斗事件流完全一致
-    _, e1 = run_battle(42)
-    _, e2 = run_battle(42)
+    # 2. 确定性：同种子+同蛐蛐，两次战斗事件流完全一致
+    la, ra = _random_fighter(0), _random_fighter(1)
+    _, e1 = run_battle(42, la=la, ra=ra)
+    _, e2 = run_battle(42, la=la, ra=ra)
     check("引擎·同种子复现一致", e1 == e2, f"{len(e1)} 事件")
 
-    # 3. 大样本：全部打完、结果合法、数值不越界
+    # 3. 大样本：全部打完、结果合法、数值不越界；并统计力竭频率
     reasons, winners = set(), set()
     ok_bounds = True
-    for i in range(60):
+    total_ex = 0
+    for i in range(150):
         b, ev = run_battle(random.randrange(1 << 30))
         check_over = b.over and b.winner in (0, 1, None) and b.end_reason
         if not check_over:
             ok_bounds = False
         reasons.add(b.end_reason)
         winners.add(b.winner)
+        total_ex += sum(1 for e in ev if e["type"] == "exhaust")
         for e in ev:
             if "dmg" in e and e["dmg"] < 0:
                 ok_bounds = False
             if "hp" in e and (e["hp"] < 0 or e["hp"] > 999):
                 ok_bounds = False
-    check("引擎·60 场全部正常终局", ok_bounds, f"终局原因 {sorted(reasons)}")
+    check("引擎·150 场全部正常终局", ok_bounds, f"终局原因 {sorted(reasons)}")
+    avg_ex = total_ex / 150.0
+    check("节奏·力竭是点缀不是常态", avg_ex <= 2.5,
+          f"场均力竭 {avg_ex:.1f} 次")
 
     # 4. 终局手段覆盖：击倒与士气崩溃都出现过
     check("玩法·击倒结局存在", "击倒" in reasons)

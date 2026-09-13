@@ -96,7 +96,9 @@ class ArenaWindow(QWidget):
                 "thd": 0.0 if side == 0 else 180.0,  # 目标朝向
                 "wt": (x, y),                        # 游走目标点
                 "wt_t": 0.0,
-                "kn": [0.0, 0.0],                    # 受击退速度
+                "mode": "wander",                    # wander/approach/retreat/circle
+                "mode_t": 0.0,
+                "kn": [0.0, 0.0],                    # 受击退/后撤速度
                 "dash": None,                        # {'t','dur','sx','sy','tx','ty'}
             })
         self.fx = {
@@ -192,19 +194,27 @@ class ArenaWindow(QWidget):
         if self.fx["ko"] == i:
             return
         ch = self.ch[i]
-        f, _c, _pal = self.f[i]
         fleeing = self.fx["flee"] and self.fx["flee"][0] == i
+        fx_, fy_ = self._foe_pos(i)
 
-        # 冲锋：沿出-回的正弦轨迹扑向对手
         if ch["dash"] is not None:
+            # 冲锋：先向后一蹲蓄力（预备动作），再扑出、收回
             d = ch["dash"]
             d["t"] += dt
             k = min(1.0, d["t"] / d["dur"])
-            off = math.sin(k * math.pi)
+            if k < 0.22:
+                off = -0.12 * math.sin(k / 0.22 * math.pi)
+            else:
+                off = math.sin((k - 0.22) / 0.78 * math.pi)
             ch["x"] = d["sx"] + (d["tx"] - d["sx"]) * off
             ch["y"] = d["sy"] + (d["ty"] - d["sy"]) * off
+            ch["thd"] = math.degrees(math.atan2(fy_ - ch["y"], fx_ - ch["x"]))
             if k >= 1.0:
                 ch["dash"] = None
+                # 收势回弹一小步，避免"顶死"在对手身上
+                n = math.hypot(fx_ - ch["x"], fy_ - ch["y"]) or 1.0
+                ch["kn"][0] = (ch["x"] - fx_) / n * 95
+                ch["kn"][1] = (ch["y"] - fy_) / n * 95
         elif fleeing:
             # 掉头往罐外冲
             dx, dy = ch["x"] - DISH_CX, ch["y"] - DISH_CY
@@ -213,42 +223,84 @@ class ArenaWindow(QWidget):
             ch["y"] += dy / n * 300 * dt
             self.fx["flee"] = (i, min(1.0, self.fx["flee"][1] + dt * 0.8))
         else:
-            # 受击退惯性
+            # 受击退/后撤惯性
             if abs(ch["kn"][0]) > 1 or abs(ch["kn"][1]) > 1:
                 ch["x"] += ch["kn"][0] * dt
                 ch["y"] += ch["kn"][1] * dt
                 ch["kn"][0] *= max(0.0, 1.0 - 7.0 * dt)
                 ch["kn"][1] *= max(0.0, 1.0 - 7.0 * dt)
-            # 游走：目标点偏向两蛐蛐中点附近，保持对峙距离
-            ch["wt_t"] -= dt
-            fx_, fy_ = self._foe_pos(i)
-            mx, my = (ch["x"] + fx_) / 2, (ch["y"] + fy_) / 2
-            if ch["wt_t"] <= 0 or math.hypot(ch["wt"][0] - ch["x"],
-                                             ch["wt"][1] - ch["y"]) < 8:
-                ang = random.uniform(0, math.tau)
-                rr = random.uniform(30, 110)
-                ch["wt"] = (mx + math.cos(ang) * rr, my + math.sin(ang) * rr)
-                ch["wt_t"] = random.uniform(0.8, 2.0)
-            wx, wy = ch["wt"]
-            dwx, dwy = wx - ch["x"], wy - ch["y"]
-            dist = math.hypot(dwx, dwy)
-            if dist > 6:
-                sp = 52.0 if math.hypot(fx_ - ch["x"], fy_ - ch["y"]) > 150 else 34.0
-                ch["x"] += dwx / dist * sp * dt
-                ch["y"] += dwy / dist * sp * dt
-                ch["thd"] = math.degrees(math.atan2(dwy, dwx))
-            # 近距离对峙：面向对手
-            if math.hypot(fx_ - ch["x"], fy_ - ch["y"]) < 150:
-                ch["thd"] = math.degrees(math.atan2(fy_ - ch["y"], fx_ - ch["x"]))
 
-        # 盘内约束（逃跑除外）
+            # ---- 行为模式机：逼近 / 倒退拉开 / 绕圈试探 / 随意游走 ----
+            dist = math.hypot(fx_ - ch["x"], fy_ - ch["y"]) or 1.0
+            ch["mode_t"] -= dt
+            if ch["mode_t"] <= 0:
+                if dist < 95:
+                    ch["mode"] = random.choice(
+                        ("retreat", "circle", "wander", "retreat"))
+                elif dist > 175:
+                    ch["mode"] = "approach"
+                else:
+                    ch["mode"] = random.choice(
+                        ("wander", "circle", "approach", "retreat", "circle"))
+                ch["mode_t"] = random.uniform(0.7, 1.7)
+
+            ux, uy = (fx_ - ch["x"]) / dist, (fy_ - ch["y"]) / dist
+            mvx, mvy, sp = 0.0, 0.0, 0.0
+            face_foe = True
+            if ch["mode"] == "approach":
+                if dist > 108:
+                    mvx, mvy, sp = ux, uy, 74.0
+            elif ch["mode"] == "retreat":
+                # 倒退着拉开距离（身子仍对着对手，真实斗蛐蛐的退让姿态）
+                if dist < 168:
+                    mvx, mvy, sp = -ux, -uy, 80.0
+            elif ch["mode"] == "circle":
+                # 绕对手弧线游走（两只绕行方向相反，形成盘旋感）
+                sgn = 1.0 if i == 0 else -1.0
+                mvx, mvy = -uy * sgn, ux * sgn
+                sp = 64.0
+                if dist > 150:
+                    mvx += ux * 0.5
+                    mvy += uy * 0.5
+                elif dist < 95:
+                    mvx -= ux * 0.5
+                    mvy -= uy * 0.5
+            else:  # wander
+                ch["wt_t"] -= dt
+                wx, wy = ch["wt"]
+                if math.hypot(wx - ch["x"], wy - ch["y"]) < 10:
+                    ang = random.uniform(0, math.tau)
+                    rr = random.uniform(30, 100)
+                    mx, my = (ch["x"] + fx_) / 2, (ch["y"] + fy_) / 2
+                    ch["wt"] = (mx + math.cos(ang) * rr, my + math.sin(ang) * rr)
+                wx, wy = ch["wt"]
+                dwx, dwy = wx - ch["x"], wy - ch["y"]
+                dwd = math.hypot(dwx, dwy)
+                if dwd > 8:
+                    mvx, mvy, sp = dwx / dwd, dwy / dwd, 46.0
+                    face_foe = dist < 140
+
+            if sp > 0:
+                ch["x"] += mvx * sp * dt
+                ch["y"] += mvy * sp * dt
+                if face_foe:
+                    ch["thd"] = math.degrees(math.atan2(fy_ - ch["y"], fx_ - ch["x"]))
+                else:
+                    ch["thd"] = math.degrees(math.atan2(mvy, mvx))
+
+        # 盘内约束（逃跑除外）；退无可退就立刻换行为，避免贴墙发呆
         if not fleeing:
+            px, py = ch["x"], ch["y"]
             dx, dy = ch["x"] - DISH_CX, ch["y"] - DISH_CY
             d = math.hypot(dx, dy)
             lim = DISH_R - 34
             if d > lim:
                 ch["x"] = DISH_CX + dx / d * lim
                 ch["y"] = DISH_CY + dy / d * lim
+                if ch["mode"] == "retreat" \
+                        and math.hypot(ch["x"] - px, ch["y"] - py) > 1.5:
+                    ch["mode"] = random.choice(("circle", "wander"))
+                    ch["mode_t"] = random.uniform(0.8, 1.4)
 
         # 朝向平滑
         diff = (ch["thd"] - ch["hd"] + 540) % 360 - 180
@@ -294,6 +346,12 @@ class ArenaWindow(QWidget):
                           f"{'暴击' if e.get('crit') else '命中'} {e['dmg']}"
                           f"{'（被格挡）' if e.get('guarded') else ''}")
             else:
+                # 被躲开：守方顺势大步跳出距离
+                dch = self.ch[1 - side]
+                jx, jy = dch["x"] - sx, dch["y"] - sy
+                jn = math.hypot(jx, jy) or 1.0
+                dch["kn"][0] = jx / jn * 300
+                dch["kn"][1] = jy / jn * 300
                 self._float("闪避", 1 - side, "#B4B2A9", -34)
                 self._log(f"{names[side]} 的「{e['move']}」被躲开了")
         elif t == "guard_up":
@@ -312,13 +370,18 @@ class ArenaWindow(QWidget):
             self._float(f"-{e['dmg']}", e["side"], "#F0997B", -20)
         elif t == "exhaust":
             self._float("力竭!", e["side"], "#EF9F27", -46)
-            # 力竭后撤两步
+            # 力竭后大幅后撤喘口气
             ch = self.ch[e["side"]]
             fx_, fy_ = self._foe_pos(e["side"])
             n = math.hypot(ch["x"] - fx_, ch["y"] - fy_) or 1.0
-            ch["kn"][0] = (ch["x"] - fx_) / n * 120
-            ch["kn"][1] = (ch["y"] - fy_) / n * 120
-            self._log(f"{names[e['side']]} 耐力见底，暂时动弹不得")
+            ch["kn"][0] = (ch["x"] - fx_) / n * 170
+            ch["kn"][1] = (ch["y"] - fy_) / n * 170
+            ch["mode"], ch["mode_t"] = "retreat", 1.2
+            self._log(f"{names[e['side']]} 耐力见底，退开喘息")
+        elif t == "recover":
+            self._float("回气!", e["side"], "#97C459", -46)
+            self.f[e["side"]][1].hop(95)
+            self._log(f"{names[e['side']]} 缓过劲来，耐力回满！")
         elif t == "end":
             self.end_t = 1.3
             w = e["winner"]

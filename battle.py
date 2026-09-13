@@ -168,8 +168,13 @@ class Battle:
                 dmg = float(self.db.const("BLEED_PER_TICK", 3)) * f.statuses["s002"]["stacks"]
                 self._lose_hp(f, dmg, ev, kind="bleed")
                 self._drain_morale(f, self._morale_loss(dmg, f.guts), ev)
+        # 状态到期清理；力竭到期时按状态表语义「恢复后耐力回满」
         for sid in [k for k, v in f.statuses.items() if v["until"] <= self.t]:
             del f.statuses[sid]
+            if sid == "s001" and f.exhausted_until <= self.t:
+                f.exhausted_until = -1.0
+                f.sta = f.sta_max
+                ev.append({"t": self.t, "type": "recover", "side": f.side})
 
     def _tick_regen(self, f: Fighter, dt: float) -> None:
         if f.exhausted_until > self.t:
@@ -201,12 +206,22 @@ class Battle:
             f.cool = self._interval(f)
             return
 
-        total = sum(float(m.get("选择权重", 1)) for _, m in moves)
+        total = 0.0
+        weights = []
+        low_sta = f.sta < f.sta_max * 0.45
+        for m2, mv2 in moves:
+            cost = float(mv2.get("耐力消耗", 0))
+            w = float(mv2.get("选择权重", 1))
+            if low_sta:
+                # 耐力见底时本能偏向省力的招，避免无脑大招把自己打空
+                w *= max(0.2, 18.0 / (4.0 + cost))
+            weights.append(w)
+            total += w
         roll = self.rng.uniform(0, total)
         acc = 0.0
         mid, mv = moves[0], moves[0][1]
-        for m2, mv2 in moves:
-            acc += float(mv2.get("选择权重", 1))
+        for (m2, mv2), w in zip(moves, weights):
+            acc += w
             if roll <= acc:
                 mid, mv = m2, mv2
                 break
