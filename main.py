@@ -15,6 +15,7 @@ import json
 import os
 import random
 import sys
+import time
 import traceback
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +24,7 @@ LOG_FILE = os.path.join(APP_DIR, "error.log")
 
 from PySide6.QtCore import QObject, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QCursor, QFont, QIcon,
-                           QPainter, QPen, QPixmap)
+                           QPainter, QPen, QPixmap, QRegion)
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from pynput import keyboard, mouse
@@ -86,6 +87,7 @@ class Pet(QWidget):
 
         self._dragging = False
         self._offset = None
+        self._menu_t = 0.0        # 上次弹菜单的时间，用于防重复弹出
         self._pending = 0          # 待汇总显示的经验
         self._pending_t = 0.0
         self.floats = []           # 飘字 [(text, x, y, life, max_life, color)]
@@ -122,16 +124,33 @@ class Pet(QWidget):
         was_visible = self.isVisible()
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        # 注意：不能用 WA_TransparentForMouseEvents —— 那会让右键穿透到桌面，
+        # 弹出系统的“刷新/查看”菜单。改用 setMask 只占住蛐蛐本体那一块。
         self.setWindowTitle("电子斗蛐蛐")
         if was_visible:
             self.show()
+        self._update_mask()
+
+    def _update_mask(self) -> None:
+        """只在蛐蛐本体与经验条的位置接收鼠标事件。
+
+        mask 之外（窗口的透明区域）事件照旧穿透到桌面，不挡图标；
+        mask 之内事件归窗口，右键不会再漏给系统菜单。
+        """
+        f = self.zoom
+        # 蛐蛐绘制范围：本地 x∈[-45,63]、y∈[-55,22]，再按 SCALE 与脚底位置换算
+        region = QRegion(int(34 * f), int(36 * f), int(150 * f), int(126 * f))
+        if self.settings.show_bar:
+            region = region.united(
+                QRegion(int(24 * f), int(162 * f), int(142 * f), int(46 * f)))
+        self.setMask(region)
 
     def apply_zoom(self) -> None:
         """按缩放值调整窗口尺寸。"""
         f = self.zoom
         self.setFixedSize(max(60, int(WIN_W * f)), max(60, int(WIN_H * f)))
+        self._update_mask()
         self._clamp_into_screen()
         self.update()
 
@@ -380,9 +399,19 @@ class Pet(QWidget):
 
     # ---------- 交互 ----------
 
+    def contextMenuEvent(self, event) -> None:
+        """右键落在 mask 内时走这里 —— 事件已被窗口吃掉，不会再漏给桌面。"""
+        event.accept()
+        self._show_menu()
+
     def _show_menu(self) -> None:
+        # 防重入：Qt 事件与全局钩子都可能触发，0.4 秒内只弹一次
+        now = time.monotonic()
+        if now - self._menu_t < 0.4:
+            return
         if not self.geometry().contains(QCursor.pos()):
             return
+        self._menu_t = now
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
         act_attr = QAction("蛐蛐属性", self)
