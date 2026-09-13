@@ -110,6 +110,8 @@ class ArenaWindow(QWidget):
             "ko": None,
         }
         self.log = [" waiting"]
+        self._prev_pos = [(self.ch[0]["x"], self.ch[0]["y"]),
+                          (self.ch[1]["x"], self.ch[1]["y"])]
         self.result_box.hide()
         self.timer.start()
 
@@ -158,6 +160,19 @@ class ArenaWindow(QWidget):
                 frozen = True
             if not frozen:
                 self.f[i][1].update(dt)
+
+            # 步态驱动：按本帧实际位移算移动强度，冲刺时步频拉满
+            ch = self.ch[i]
+            c2 = self.f[i][1]
+            if self.fx["ko"] != i:
+                px, py = self._prev_pos[i]
+                moved = math.hypot(ch["x"] - px, ch["y"] - py)
+                self._prev_pos[i] = (ch["x"], ch["y"])
+                target = max(0.0, min(1.0, moved / dt / 130.0))
+                if ch["dash"] is not None:
+                    target = 1.0
+                c2.move_amp += (target - c2.move_amp) * min(1.0, dt * 9.0)
+                c2.gait_phase += dt * (4.0 + 14.0 * c2.move_amp)
             self._choreo(i, dt)
         self._separate()
 

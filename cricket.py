@@ -40,6 +40,9 @@ class Cricket:
         self.chirp = 0.0          # 鸣叫剩余时间
         self.wing = 0.0           # 翅膀张开 0~1
         self.happy = 0.0          # 兴奋度(刚吃到经验)
+        # 步态（俯视战斗用）：move_amp 0~1 移动强度，gait_phase 步态相位
+        self.move_amp = 0.0
+        self.gait_phase = 0.0
 
     def hop(self, power: float = 110.0) -> None:
         """起跳。落地前重复调用无效，避免叠加成火箭。"""
@@ -272,37 +275,52 @@ def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
 
     p.save()
     p.translate(x, y)
-    p.rotate(angle_deg)
-    p.scale(scale * breathe, scale / breathe)
+    # 移动时身体轻微摇摆 + 沿前进方向拉伸，踩点更实
+    p.rotate(angle_deg + math.sin(c.gait_phase) * 1.5 * c.move_amp)
+    lean = 0.06 * c.move_amp
+    p.scale(scale * breathe * (1.0 + lean), scale / breathe * (1.0 - lean * 0.5))
 
     # 影子（略向右下偏，制造一点离地感）
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(QBrush(QColor(0, 0, 0, 52)))
     p.drawEllipse(QRectF(-34, -14, 74, 30))
 
-    # 大后腿（先画，压在身体下面）：粗股节斜后撇 + 细胫节
+    # 大后腿（先画，压在身体下面）：粗股节斜后撇 + 细胫节。
+    # 行走步态：三脚架步态——左前/右中/左后 同相，右前/左中/右后 反相，
+    # 脚沿体轴前后摆，幅度随 move_amp；原地时收腿静止。
+    amp = 8.0 * c.move_amp
+
+    def _sw(seg: int, s: int) -> float:
+        # 三脚架步态：seg 0=前 1=中 2=后；(seg+side)%2 同相
+        side = 0 if s > 0 else 1
+        base = 0.0 if (seg + side) % 2 == 0 else math.pi
+        return math.sin(c.gait_phase + base) * amp
+
     for s in (1, -1):
+        sw = _sw(2, s)   # 后腿相位
         fem = QPainterPath()
         fem.moveTo(2, 7 * s)
-        fem.quadTo(16, 13 * s, 18, 22 * s)
+        fem.quadTo(16 + sw * 0.4, 13 * s, 18 + sw * 0.6, 22 * s)
         _stroke(p, fem, LIMB_FAR if s < 0 else LIMB, 5.2)
         tib = QPainterPath()
-        tib.moveTo(18, 22 * s)
-        tib.quadTo(34, 27 * s, 46, 24 * s)
+        tib.moveTo(18 + sw * 0.6, 22 * s)
+        tib.quadTo(34 + sw * 0.8, 27 * s, 46 + sw, 24 * s)
         _stroke(p, tib, LIMB_FAR if s < 0 else LIMB, 2.2)
 
     # 中腿
     for s in (1, -1):
+        sw = _sw(1, s)
         leg = QPainterPath()
         leg.moveTo(2, 8 * s)
-        leg.quadTo(0, 18 * s, 10, 22 * s)
+        leg.quadTo(sw * 0.4, 18 * s, 10 + sw, 22 * s)
         _stroke(p, leg, LIMB, 2.4)
 
     # 前腿（画在头前，最后压上）
     for s in (1, -1):
+        sw = _sw(1, s)
         leg = QPainterPath()
         leg.moveTo(18, 7 * s)
-        leg.quadTo(24, 13 * s, 32, 14 * s)
+        leg.quadTo(24 + sw * 0.5, 13 * s, 32 + sw, 14 * s)
         _stroke(p, leg, LIMB, 2.2)
 
     # 腹部（翅下躯干轮廓）

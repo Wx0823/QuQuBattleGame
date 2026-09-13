@@ -88,9 +88,14 @@ def main() -> int:
     check("节奏·力竭是点缀不是常态", avg_ex <= 2.5,
           f"场均力竭 {avg_ex:.1f} 次")
 
-    # 4. 终局手段覆盖：击倒与士气崩溃都出现过
+    # 4. 终局手段：击倒看统计；士气崩溃用定向构造（随机对局中它是小概率结局）
     check("玩法·击倒结局存在", "击倒" in reasons)
-    check("玩法·士气崩溃结局存在", "士气崩溃" in reasons)
+    scare = {"name": "胆气弱", "side": 1, "level": 8, "stats": {
+        "hp": 160, "sta": 90, "atk": 20, "arm": 20, "spd": 20,
+        "sta_regen": 6, "crit": 0, "guts": 10, "morale": 45, "pen": 0}}
+    _, ev = run_battle(19, ra=scare)
+    check("玩法·士气崩溃可触发",
+          any(e["type"] == "end" and e["reason"] == "士气崩溃" for e in ev))
 
     # 5. 定向触发·力竭：耐力耗尽必然出力竭事件
     low_sta = {"name": "没劲的", "side": 1, "level": 1, "stats": {
