@@ -111,8 +111,29 @@ def _stroke(p: QPainter, path: QPainterPath, color: QColor, width: float) -> Non
     p.drawPath(path)
 
 
-def _draw_body(p: QPainter, c: Cricket) -> None:
+def palette_from_hex(main_hex: str) -> dict:
+    """由品种主色生成一套配色：亮部 / 本体 / 暗部 / 腹部亮面。
+
+    主色来自数值表「2-品种」的 主色 列，所以换品种就换配色。
+    """
+    base = QColor(main_hex)
+    if not base.isValid():
+        base = QColor("#6FA83C")
+    h, s, v, _a = base.getHsv()
+    return {
+        "hi": QColor.fromHsv(h, max(0, s - 40), min(255, v + 45)),
+        "body": base,
+        "dk": QColor.fromHsv(h, min(255, s + 30), max(0, int(v * 0.62))),
+        "belly": QColor.fromHsv(h, max(0, s - 60), min(255, v + 70)),
+    }
+
+
+DEFAULT_PALETTE = palette_from_hex("#6FA83C")
+
+
+def _draw_body(p: QPainter, c: Cricket, pal: dict) -> None:
     sway = math.sin(c.t * 1.8) * 4.0
+    hi, body, dk, belly = pal["hi"], pal["body"], pal["dk"], pal["belly"]
 
     # 远侧后腿（先画，被身体挡住一半）
     far = QPainterPath()
@@ -129,17 +150,17 @@ def _draw_body(p: QPainter, c: Cricket) -> None:
         _stroke(p, tail, LIMB, 2.2)
 
     # 躯干
-    p.setPen(QPen(BODY_DK, 1.5))
-    p.setBrush(QBrush(BODY))
+    p.setPen(QPen(dk, 1.5))
+    p.setBrush(QBrush(body))
     p.drawEllipse(QRectF(-26, -17, 52, 34))
 
     # 腹部亮面
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QBrush(BELLY))
+    p.setBrush(QBrush(belly))
     p.drawEllipse(QRectF(-21, -1, 38, 15))
 
     # 体节纹
-    p.setPen(QPen(QColor(63, 92, 44, 110), 1.2))
+    p.setPen(QPen(QColor(dk.red(), dk.green(), dk.blue(), 110), 1.2))
     for i in range(3):
         x = -13 + i * 9
         p.drawLine(int(x), -14, int(x - 2), 4)
@@ -149,8 +170,8 @@ def _draw_body(p: QPainter, c: Cricket) -> None:
     p.save()
     p.translate(-4, -13)
     p.rotate(-c.wing * 13.0)
-    p.setPen(QPen(BODY_DK, 1.2))
-    p.setBrush(QBrush(BODY_HI))
+    p.setPen(QPen(dk, 1.2))
+    p.setBrush(QBrush(hi))
     p.drawEllipse(QRectF(-18, -8, 45, 20))
     p.setPen(QPen(QColor(255, 255, 255, 95), 1.0))
     p.drawLine(-12, -3, 18, -6)
@@ -159,8 +180,8 @@ def _draw_body(p: QPainter, c: Cricket) -> None:
     p.setPen(Qt.PenStyle.NoPen)
 
     # 头
-    p.setPen(QPen(BODY_DK, 1.5))
-    p.setBrush(QBrush(BODY))
+    p.setPen(QPen(dk, 1.5))
+    p.setBrush(QBrush(body))
     p.drawEllipse(QRectF(14, -28, 32, 32))
 
     # 触角
@@ -176,7 +197,7 @@ def _draw_body(p: QPainter, c: Cricket) -> None:
         p.drawLine(31, -16, 41, -16)
     else:
         p.setBrush(QBrush(EYE_W))
-        p.setPen(QPen(BODY_DK, 1.0))
+        p.setPen(QPen(dk, 1.0))
         p.drawEllipse(QRectF(29.5, -22.5, 13, 13))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(EYE_D))
@@ -185,7 +206,7 @@ def _draw_body(p: QPainter, c: Cricket) -> None:
         p.drawEllipse(QRectF(35.8, -18.4, 2.2, 2.2))
 
     # 嘴
-    p.setPen(QPen(BODY_DK, 1.4))
+    p.setPen(QPen(dk, 1.4))
     p.drawArc(QRectF(38, -10, 9, 8), 200 * 16, 140 * 16)
 
     # 近侧后腿（蟋蟀的大腿，画在最上层）
@@ -206,8 +227,12 @@ def _draw_body(p: QPainter, c: Cricket) -> None:
         _stroke(p, leg, LIMB, 3.4)
 
 
-def paint_cricket(p: QPainter, cx: float, foot_y: float, scale: float, c: Cricket) -> None:
-    """在 (cx, foot_y) 处画一只蛐蛐，脚底对齐 foot_y。"""
+def paint_cricket(p: QPainter, cx: float, foot_y: float, scale: float,
+                  c: Cricket, palette: dict | None = None) -> None:
+    """在 (cx, foot_y) 处画一只蛐蛐，脚底对齐 foot_y。
+
+    palette 来自数值表品种主色，不传则用默认绿色。
+    """
     # 地面投影，跳得越高影子越小越淡
     k = max(0.35, 1.0 - c.y / 60.0)
     p.setPen(Qt.PenStyle.NoPen)
@@ -221,5 +246,5 @@ def paint_cricket(p: QPainter, cx: float, foot_y: float, scale: float, c: Cricke
     p.translate(cx, foot_y - c.y)
     p.scale(f * scale * breathe, scale / breathe)
     p.translate(0, -22)
-    _draw_body(p, c)
+    _draw_body(p, c, palette or DEFAULT_PALETTE)
     p.restore()

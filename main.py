@@ -29,7 +29,9 @@ from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 from pynput import keyboard, mouse
 from pynput.keyboard import Key
 
-from cricket import Cricket, paint_cricket
+from cricket import Cricket, paint_cricket, palette_from_hex
+from panel import StatsPanel
+from stats import StatsDB
 
 WIN_W, WIN_H = 190, 208
 CX = 98.0
@@ -70,6 +72,14 @@ class Pet(QWidget):
         self.xp = 0
         self.total_xp = 0
 
+        # 数值表驱动：品种 + 等级 + 天赋 -> 最终属性
+        self.db = StatsDB()
+        self.species_id = "c001"
+        self.talents = []
+        self.stats = {}
+        self.palette = None
+        self.recompute()
+
         self._dragging = False
         self._offset = None
         self._pending = 0          # 待汇总显示的经验
@@ -79,7 +89,9 @@ class Pet(QWidget):
         self._save_t = 0.0
 
         self._load()
+        self.recompute()  # 读档后按存档的品种/等级重算
         self._init_window()
+        self.panel = StatsPanel(self)  # 必须在钩子启动前建好
         self._init_tray()
         self._init_hook()
 
@@ -107,10 +119,14 @@ class Pet(QWidget):
         self.tray = QSystemTrayIcon(_make_icon(), self)
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
+        act_panel = QAction("查看属性", self)
+        act_panel.triggered.connect(self._toggle_panel)
         act_reset = QAction("重置蛐蛐", self)
         act_reset.triggered.connect(self._reset)
         act_quit = QAction("退出", self)
         act_quit.triggered.connect(self._quit)
+        menu.addAction(act_panel)
+        menu.addSeparator()
         menu.addAction(act_reset)
         menu.addSeparator()
         menu.addAction(act_quit)
@@ -132,6 +148,20 @@ class Pet(QWidget):
         self.kb.start()
         self.ms.start()
 
+    # ---------- 属性 ----------
+
+    def recompute(self) -> None:
+        """按数值表重算属性与配色。等级或品种变化后都要调用。"""
+        self.stats, self._cond = self.db.compute(
+            self.species_id, self.level, self.talents)
+        sp = self.db.species(self.species_id) or {}
+        self.palette = palette_from_hex(str(sp.get("主色", "#6FA83C")))
+
+    def set_species(self, sid: str) -> None:
+        if self.db.species(sid):
+            self.species_id = sid
+            self.recompute()
+
     # ---------- 存档 ----------
 
     def _load(self) -> None:
@@ -144,6 +174,8 @@ class Pet(QWidget):
             self.level = int(d.get("level", 1))
             self.xp = int(d.get("xp", 0))
             self.total_xp = int(d.get("total_xp", self.xp))
+            self.species_id = str(d.get("species_id", "c001"))
+            self.talents = list(d.get("talents", []))
             if d.get("x") is not None and d.get("y") is not None:
                 self._start_pos = (int(d["x"]), int(d["y"]))
         except Exception:
@@ -154,6 +186,8 @@ class Pet(QWidget):
             "level": self.level,
             "xp": self.xp,
             "total_xp": self.total_xp,
+            "species_id": self.species_id,
+            "talents": self.talents,
             "x": self.x() if self.isVisible() else None,
             "y": self.y() if self.isVisible() else None,
         }
@@ -205,12 +239,18 @@ class Pet(QWidget):
         self.xp += n
         self.total_xp += n
         self._pending += n
-        while self.xp >= xp_need(self.level):
-            self.xp -= xp_need(self.level)
+        leveled = False
+        while self.xp >= self.db.exp_need(self.level):
+            self.xp -= self.db.exp_need(self.level)
             self.level += 1
+            leveled = True
             self.levelup_t = 1.8
             self.cricket.level_up()
             self.floats.append(["升级!", 0.0, 0.0, 1.8, 1.8, QColor("#F2B233")])
+        if leveled:
+            self.recompute()
+            if self.panel is not None and self.panel.isVisible():
+                self.panel.refresh()
 
     # ---------- 主循环 ----------
 
@@ -260,7 +300,7 @@ class Pet(QWidget):
             p.drawEllipse(QRectF(CX - 62 * (1.6 - k * 0.6), FOOT_Y - 96,
                                  124 * (1.6 - k * 0.6), 104))
 
-        paint_cricket(p, CX, FOOT_Y, SCALE, self.cricket)
+        paint_cricket(p, CX, FOOT_Y, SCALE, self.cricket, self.palette)
 
         self._draw_floats(p)
         self._draw_bar(p)
@@ -282,7 +322,7 @@ class Pet(QWidget):
                        Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_bar(self, p: QPainter) -> None:
-        need = xp_need(self.level)
+        need = self.db.exp_need(self.level)
         ratio = max(0.0, min(1.0, self.xp / need))
         x, y, w, h = 34.0, 170.0, 122.0, 9.0
 
@@ -294,14 +334,18 @@ class Pet(QWidget):
         p.setBrush(QBrush(QColor(255, 255, 255, 70)))
         p.drawRoundedRect(QRectF(x + 1, y + 1, max(0.0, w * ratio - 2), 3), 1.5, 1.5)
 
+        # 文字底衬：桌面上背景不可控，加个深色胶囊保证任何壁纸下都能看清
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(0, 0, 0, 135)))
+        p.drawRoundedRect(QRectF(x + w / 2 - 54, y + 12, 108, 19), 9.5, 9.5)
+
         font = QFont("Microsoft YaHei", 9)
         font.setWeight(QFont.Weight.DemiBold)
         p.setFont(font)
-        label = f"Lv.{self.level}   {self.xp} / {need}"
-        p.setPen(QPen(QColor(0, 0, 0, 140), 3.0))
-        p.drawText(QRectF(x - 10, y + 11, w + 20, 18), Qt.AlignmentFlag.AlignCenter, label)
-        p.setPen(QPen(QColor("#FFFFFF"), 1.0))
-        p.drawText(QRectF(x - 10, y + 11, w + 20, 18), Qt.AlignmentFlag.AlignCenter, label)
+        label = f"Lv.{self.level}  {self.xp} / {need}"
+        p.setPen(QPen(QColor(255, 255, 255, 230), 1.0))
+        p.drawText(QRectF(x + w / 2 - 54, y + 12, 108, 19),
+                   Qt.AlignmentFlag.AlignCenter, label)
 
     # ---------- 交互 ----------
 
@@ -310,14 +354,24 @@ class Pet(QWidget):
             return
         menu = QMenu()
         menu.setFont(QFont("Microsoft YaHei", 9))
+        act_panel = QAction("查看属性", self)
+        act_panel.triggered.connect(self._toggle_panel)
         act_reset = QAction("重置蛐蛐", self)
         act_reset.triggered.connect(self._reset)
         act_quit = QAction("退出", self)
         act_quit.triggered.connect(self._quit)
+        menu.addAction(act_panel)
+        menu.addSeparator()
         menu.addAction(act_reset)
         menu.addSeparator()
         menu.addAction(act_quit)
         menu.exec(QCursor.pos())
+
+    def _toggle_panel(self) -> None:
+        if self.panel.isVisible():
+            self.panel.hide()
+        else:
+            self.panel.show_near(self)
 
     def _clamp_into_screen(self) -> None:
         screen = QApplication.primaryScreen().availableGeometry()

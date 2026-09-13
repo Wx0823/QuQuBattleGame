@@ -86,15 +86,15 @@
         <td>透明置顶窗口、手绘蛐蛐、拖动、打字/点击涨经验、等级条、存档</td>
         <td><span class="badge b-done">已交付</span></td>
       </tr>
-      <tr>
-        <td><strong>v0.2</strong></td><td>属性与状态</td>
-        <td>攻/防/速/体四维，饱食度·心情·体力状态条，属性面板</td>
-        <td><span class="badge b-next">下一版</span></td>
+      <tr class="done">
+        <td><strong>v0.2</strong></td><td>数值表与属性系统</td>
+        <td>Excel 数值表驱动全部数值；品种/成长/招式/克制/状态/常数/天赋；属性面板</td>
+        <td><span class="badge b-done">已交付</span></td>
       </tr>
       <tr>
-        <td><strong>v0.3</strong></td><td>喂食与训练</td>
-        <td>食物道具、喂食互动、训练小游戏提升单项属性</td>
-        <td><span class="badge b-todo">待开始</span></td>
+        <td><strong>v0.3</strong></td><td>状态条与喂食</td>
+        <td>饱食度·心情·体力三条状态；食物道具、喂食互动、训练小游戏</td>
+        <td><span class="badge b-next">下一版</span></td>
       </tr>
       <tr>
         <td><strong>v0.4</strong></td><td>斗蛐蛐对战</td>
@@ -140,31 +140,33 @@
     </div>
 
     <div class="ver">
-      <div class="ver-tag next">v0.2<small>下一版</small></div>
+      <div class="ver-tag done">v0.2<small>已交付</small></div>
       <div class="ver-body">
-        <div class="ver-title">属性与状态</div>
-        <div class="ver-desc">给蛐蛐加"数值"，并引入需要维护的状态，为喂食和战斗铺路。</div>
+        <div class="ver-title">数值表与属性系统</div>
+        <div class="ver-desc">把"数值"从代码里赶出去——全部交给 MySQL 风格的多表 Excel 配置。</div>
         <ul>
-          <li>四维属性：<strong>攻击 / 防御 / 速度 / 体力</strong>，由等级与天赋派生</li>
-          <li>三条状态：<strong>饱食度 / 心情 / 体力</strong>，随时间自然衰减</li>
-          <li>属性面板：右键或悬浮查看数值明细</li>
-          <li>状态影响成长：心情 ≥80 时经验获取 +20%，饥饿时衰减</li>
-          <li>存档结构升级，兼容旧档（缺字段自动补默认值）</li>
+          <li><strong>Excel 数值表</strong>：8 张表（属性定义 / 品种 / 成长 / 招式 / 克制 / 状态 / 战斗常数 / 天赋）</li>
+          <li>启动自动检测 Excel 改动并重新导出 JSON，策划改表即生效</li>
+          <li>属性体系：核心（血 / 耐 / 攻 / 甲 / 速）+ 派生（耐力回复 / 暴击 / 韧性 / 破甲）+ 隐藏（斗性 / 体重 / 士气）</li>
+          <li><strong>品种配色由数值表主色直接生成</strong>——换品种即换外观，6 个品种已可区分</li>
+          <li>护甲走百分比递减 <code>ARM/(ARM+100)</code>，速度走线性收益（快一倍＝打两倍次数）</li>
+          <li>属性面板：实时数值、出手间隔、护甲减伤、天赋、战力评分</li>
+          <li>存档升级：记录品种与天赋，兼容旧档</li>
         </ul>
       </div>
     </div>
 
     <div class="ver">
-      <div class="ver-tag">v0.3<small>待开始</small></div>
+      <div class="ver-tag next">v0.3<small>下一版</small></div>
       <div class="ver-body">
-        <div class="ver-title">喂食与训练</div>
-        <div class="ver-desc">让玩家有事可做，把"挂机涨经验"变成"主动养蛐蛐"。</div>
+        <div class="ver-title">状态条与喂食</div>
+        <div class="ver-desc">给蛐蛐加上"要照顾"的需求，把挂机涨经验变成主动养蛐蛐。</div>
         <ul>
-          <li>食物道具：毛毛虫 / 豆类 / 露水，分品质与效果</li>
-          <li>喂食动画与饱食度、心情回复</li>
-          <li>训练小互动：连点 / 节奏点击，提升指定属性</li>
-          <li>体力消耗与随时间恢复，防止无限刷</li>
-          <li>经验可作为通用货币购买食物</li>
+          <li>三条状态：<strong>饱食度 / 心情 / 体力</strong>，随时间自然衰减</li>
+          <li>状态影响成长：心情 ≥80 时经验 +20%，饥饿时减半</li>
+          <li>食物道具（表单新增「9-食物」表）：毛毛虫 / 豆类 / 露水，分品质与效果</li>
+          <li>喂食动画与状态回复，经验作为通用货币</li>
+          <li>训练小互动：连点 / 节奏点击，定向提升某一属性</li>
         </ul>
       </div>
     </div>
@@ -173,14 +175,16 @@
       <div class="ver-tag">v0.4<small>待开始</small></div>
       <div class="ver-body">
         <div class="ver-title">斗蛐蛐对战 <span class="badge b-next">核心玩法</span></div>
-        <div class="ver-desc">项目名字里的"斗"，玩法真正成立的一版。</div>
+        <div class="ver-desc">项目名字里的"斗"，玩法真正成立的一版。全部数值取自数值表。</div>
         <ul>
-          <li>战斗数值：伤害 = 攻击 × 系数 − 防御，速度决定出手顺序</li>
-          <li>回合制自动战斗，带暴击与闪避随机性</li>
-          <li>对手梯度：野虫 / 同级 / 精英，按等级解锁</li>
-          <li>战斗表现：冲撞、鸣叫威慑、退避，伤害飘字与血条</li>
-          <li>胜负结算：经验、道具、连胜计数</li>
-          <li>战斗加速与跳过</li>
+          <li><strong>持续回复的耐力池</strong>：每秒回耐力，出手消耗；耐力见底才进力竭（受伤 +50%，1.5 秒后回满），把力竭做成战术节点而非空窗</li>
+          <li><strong>招式博弈</strong>：轻咬 / 冲撞 / 格挡 / 鸣叫 / 撕咬 / 摔投，克制矩阵做成石头剪刀布</li>
+          <li><strong>士气与逃跑</strong>：士气归零会逃跑判负——真实斗蛐蛐比的不是打死，是谁先怂；斗性决定士气下降速度</li>
+          <li>护甲百分比减伤 + 破甲克制；暴击 / 韧性 / 闪避随机性</li>
+          <li>状态系统：流血、破防、畏缩、士气高涨（表 6 已定义）</li>
+          <li>战斗表现：冲撞、撕咬、鸣叫振翅（复用蛐蛐翅膀动画）、伤害飘字与血条</li>
+          <li>双败北条件结算：血量归零 / 士气崩溃逃跑</li>
+          <li>战斗加速与跳过；第二次建议做「突然死亡」防止双高甲僵持</li>
         </ul>
         <div class="note">
           战斗窗口形态待定：是在蛐蛐旁边弹一个小战场，还是单独开一个窗口。
@@ -245,9 +249,18 @@
         <td>蛐蛐美术风格</td>
         <td>当前为萌系圆滚卡通，若改写实斗虫风只需改 <code>cricket.py</code></td>
       </tr>
+      <tr class="done">
+        <td>数值驱动改造</td>
+        <td>已全部走 Excel 数值表，代码内无硬编码战斗数值；改表重启即生效</td>
+      </tr>
       <tr>
-        <td>数值平衡</td>
-        <td>挂机涨经验速度偏快（打字即涨），v0.2 引入状态后需重新配平</td>
+        <td>数值平衡（待配）</td>
+        <td>当前成长曲线偏陡：Lv30 攻击是 Lv1 的 6.7 倍、出手快 2.4 倍，后期容易秒杀。
+        建议在「3-成长」表压平攻击增量、抬高护甲增量，或做 1000 场模拟跑胜率分布</td>
+      </tr>
+      <tr>
+        <td>挂机经验速度</td>
+        <td>打字即涨，满级太快。v0.3 引入状态衰减后需下调基础经验或提高升级需求</td>
       </tr>
       <tr>
         <td>全局钩子权限</td>
@@ -255,8 +268,8 @@
       </tr>
     </table>
     <div class="note risk" style="margin-top:14px">
-      <strong>注意：</strong>v0.2 起存档结构会变，必须写兼容逻辑读取旧 <code>save.json</code>，
-      否则老档会直接崩。
+      <strong>注意：</strong>v0.2 已做好旧档兼容（缺 <code>species_id</code>/<code>talents</code> 会自动补默认值）。
+      v0.3 加入状态字段后，同样必须保留兼容逻辑，否则老档会直接崩。
     </div>
   </div>
 
