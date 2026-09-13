@@ -94,6 +94,8 @@ class Pet(QWidget):
         self.floats = []           # 飘字 [(text, x, y, life, max_life, color)]
         self.levelup_t = 0.0
         self._save_t = 0.0
+        self._panel_dirty = False  # 面板数据有变化，待 _tick 节流刷新
+        self._panel_t = 0.0
 
         self._load()
         self.recompute()  # 读档后按存档的品种/等级重算
@@ -283,6 +285,7 @@ class Pet(QWidget):
         self.xp += n
         self.total_xp += n
         self._pending += n
+        self._panel_dirty = True   # 属性面板若开着，由 _tick 节流刷新
         leveled = False
         while self.xp >= self.db.exp_need(self.level):
             self.xp -= self.db.exp_need(self.level)
@@ -293,8 +296,7 @@ class Pet(QWidget):
             self.floats.append(["升级!", 0.0, 0.0, 1.8, 1.8, QColor("#F2B233")])
         if leveled:
             self.recompute()
-            if self.panel is not None and self.panel.isVisible():
-                self.panel.refresh()
+            self._panel_dirty = True
 
     # ---------- 主循环 ----------
 
@@ -318,6 +320,14 @@ class Pet(QWidget):
             ])
             self._pending = 0
             self._pending_t = 0.0
+
+        # 属性面板开着时同步经验/等级（0.3s 节流，避免打字时每键重刷整块面板）
+        self._panel_t += dt
+        if (self._panel_dirty and self._panel_t >= 0.3
+                and self.panel is not None and self.panel.isVisible()):
+            self.panel.refresh()
+            self._panel_dirty = False
+            self._panel_t = 0.0
 
         for f in self.floats:
             f[2] += 34 * dt
