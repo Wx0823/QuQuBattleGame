@@ -100,6 +100,8 @@ class ArenaWindow(QWidget):
                 "mode_t": 0.0,
                 "kn": [0.0, 0.0],                    # 受击退/后撤速度
                 "dash": None,                        # {'t','dur','sx','sy','tx','ty'}
+                "skew": 0.0,                         # 对峙朝向侧偏（防头对头摆拍）
+                "skew_t": 0.0,
             })
         self.fx = {
             "flash": [0.0, 0.0], "guard": [0.0, 0.0],
@@ -122,6 +124,7 @@ class ArenaWindow(QWidget):
 
     def _frame(self) -> None:
         dt = 0.03
+        self._anim_t = getattr(self, "_anim_t", 0.0) + dt
         if self.intro_t > 0:
             self.intro_t -= dt
         else:
@@ -147,9 +150,12 @@ class ArenaWindow(QWidget):
         self.fx["floats"] = [x for x in self.fx["floats"] if x[3] > 0]
 
         for i in (0, 1):
-            frozen = (self.fx["ko"] == i or
-                      (self.fx["flee"] and self.fx["flee"][0] == i
-                       and self.fx["flee"][1] >= 1))
+            fleeing_i = self.fx["flee"] and self.fx["flee"][0] == i
+            frozen = (self.fx["ko"] == i
+                      or (fleeing_i and self.fx["flee"][1] >= 1))
+            # 战斗已分胜负：胜者原地立定（不再踩着尸体走位），由 end 分支安排庆祝
+            if self.battle.over and not fleeing_i and self.fx["ko"] != i:
+                frozen = True
             if not frozen:
                 self.f[i][1].update(dt)
             self._choreo(i, dt)
@@ -172,7 +178,7 @@ class ArenaWindow(QWidget):
             return
         dx, dy = b["x"] - a["x"], b["y"] - a["y"]
         d = math.hypot(dx, dy)
-        min_d = 68.0
+        min_d = 92.0   # 身体+触须的安全距离，防穿模绞绕
         if d >= min_d or d < 0.01:
             return
         push = (min_d - d) / 2.0
@@ -293,7 +299,16 @@ class ArenaWindow(QWidget):
                 ch["x"] += mvx * sp * dt
                 ch["y"] += mvy * sp * dt
                 if face_foe:
-                    ch["thd"] = math.degrees(math.atan2(fy_ - ch["y"], fx_ - ch["x"]))
+                    # 对峙侧偏 + 小幅虚晃：真实斗蟋蟀不会摆出完美头对头
+                    ch["skew_t"] -= dt
+                    if ch["skew_t"] <= 0:
+                        ch["skew"] = random.uniform(-1.0, 1.0)
+                        ch["skew_t"] = random.uniform(1.5, 3.5)
+                    wob = (math.sin(self._anim_t * 1.7 + i * 2.1) * 6.0
+                           if dist < 150 else 0.0)
+                    base = math.atan2(fy_ - ch["y"], fx_ - ch["x"])
+                    ch["thd"] = math.degrees(
+                        base + math.radians(ch["skew"] * 20.0 + wob))
                 else:
                     ch["thd"] = math.degrees(math.atan2(mvy, mvx))
 
@@ -331,8 +346,8 @@ class ArenaWindow(QWidget):
             tx, ty = self._foe_pos(side)
             dist = math.hypot(tx - sx, ty - sy)
             # 距离越远，扑击行程越长、耗时越久——远距离出招读作"反身扑击"，
-            # 而不是原地被拽到对手脸上
-            reach = max(40.0, min(150.0, dist - 46))
+            # 而不是原地被拽到对手脸上。终点停在颚对颚（约 76px），身体不叠
+            reach = max(24.0, min(150.0, dist - 76))
             dur = 0.24 + min(0.28, dist * 0.0014)
             n = dist or 1.0
             ch = self.ch[side]
@@ -400,6 +415,14 @@ class ArenaWindow(QWidget):
             w = e["winner"]
             if e["reason"] == "击倒":
                 self.fx["ko"] = 1 - w
+                # 胜者不踩尸体：退开半步、转身高歌庆祝
+                wch = self.ch[w]
+                lch = self.ch[1 - w]
+                n = math.hypot(wch["x"] - lch["x"], wch["y"] - lch["y"]) or 1.0
+                wch["kn"][0] = (wch["x"] - lch["x"]) / n * 150
+                wch["kn"][1] = (wch["y"] - lch["y"]) / n * 150
+                wch["mode"], wch["mode_t"] = "retreat", 2.0
+                self.f[w][1].chirp = 2.2
                 self._log(f"{names[w]} 将对手掀翻在地，胜！")
             elif e["reason"] == "士气崩溃":
                 loser = 1 - w
@@ -543,9 +566,13 @@ class ArenaWindow(QWidget):
             opacity = max(0.0, 1.0 - max(0.0, d - DISH_R + 10) / 70.0)
             if opacity <= 0.0:
                 return
+        # 近身收须：两只贴近时触须上扬收短，防绞成麻花
+        fx_, fy_ = self._foe_pos(i)
+        dist = math.hypot(fx_ - ch["x"], fy_ - ch["y"])
+        ant_lift = max(0.0, min(1.0, 1.0 - (dist - 95.0) / 90.0))
         angle = ch["hd"] + (26 if self.fx["ko"] == i else 0)
         paint_cricket_top(p, ch["x"], ch["y"], angle, CRICKET_SCALE,
-                          c, pal, opacity)
+                          c, pal, opacity, ant_lift)
 
         # 受击闪白
         if self.fx["flash"][i] > 0:

@@ -254,14 +254,17 @@ def paint_cricket(p: QPainter, cx: float, foot_y: float, scale: float,
 
 def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
                       scale: float, c: Cricket, palette: dict | None = None,
-                      opacity: float = 1.0) -> None:
+                      opacity: float = 1.0, ant_lift: float = 0.0) -> None:
     """俯视画法。angle_deg=0 朝右(+x)，逆时针为负（Qt y 轴向下，正角即顺时针）。
 
     特征按真实斗蟋蟀俯视照取形：长触须、外撇大后腿、翅面纵纹、尾须。
+    ant_lift: 0~1，近身时收须上抬的程度（防两只的触须绞成麻花）。
     """
     pal = palette or DEFAULT_PALETTE
     hi, body, dk, belly = pal["hi"], pal["body"], pal["dk"], pal["belly"]
-    sway = math.sin(c.t * 1.8) * 7.0
+    lift = max(0.0, min(1.0, ant_lift))
+    ant_len = 1.0 - 0.45 * lift          # 近身收须
+    sway = math.sin(c.t * 1.8) * 7.0 * (1.0 - 0.6 * lift)
     breathe = 1.0 + 0.03 * math.sin(c.t * 2.4)
 
     if opacity < 1.0:
@@ -359,12 +362,15 @@ def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
         m.quadTo(44, (2.5 + jaw * 0.6) * s, 47, (4.5 + jaw) * s)
         _stroke(p, m, LIMB, 2.0)
 
-    # 触须：又长又飘，是俯视视角的灵魂
+    # 触须：又长又飘，是俯视视角的灵魂；近身时收短上扬防绞绕
     for s in (1, -1):
+        L = ant_len
         ant = QPainterPath()
         ant.moveTo(36, 3 * s)
-        ant.quadTo(58, (10 + sway * 0.4) * s, 82, (6 + sway) * s)
-        ant.quadTo(96, (3 + sway * 0.6) * s, 106, (-2 + sway * 0.3) * s)
+        ant.quadTo(36 + 22 * L, (10 + sway * 0.4 + 6 * lift) * s,
+                   36 + 46 * L, (6 + sway + 8 * lift) * s)
+        ant.quadTo(36 + 60 * L, (3 + sway * 0.6 + 6 * lift) * s,
+                   36 + 70 * L, (-2 + sway * 0.3 + 4 * lift) * s)
         _stroke(p, ant, LIMB_HI, 1.6)
 
     # 尾须
