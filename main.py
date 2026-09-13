@@ -144,10 +144,10 @@ class Pet(QWidget):
         f = self.zoom
         # 飘字带：从窗口顶到蛐蛐头顶，保证 "+12" 这类数字完整显示
         region = QRegion(int(16 * f), 0, int(164 * f), int(70 * f))
-        # 蛐蛐本体（y 已含 TOP_PAD 偏移）
+        # 蛐蛐本体 + 升级光圈（y 已含 TOP_PAD 偏移；左界/底界给光圈留足空间）
         region = region.united(
-            QRegion(int(34 * f), int((36 + TOP_PAD) * f),
-                    int(150 * f), int(126 * f)))
+            QRegion(int(16 * f), int((36 + TOP_PAD) * f),
+                    int(168 * f), int(128 * f)))
         if self.settings.show_bar:
             region = region.united(
                 QRegion(int(24 * f), int((162 + TOP_PAD) * f),
@@ -356,7 +356,8 @@ class Pet(QWidget):
 
         if self.levelup_t > 0:
             k = self.levelup_t / 1.8
-            gw = 124 * f * (1.6 - k * 0.6)
+            # 光圈扩散最大 160*f，必须小于窗口宽 190*f，否则两端被窗口边缘裁出直边
+            gw = 100 * f * (1.6 - k * 0.6)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(QColor(242, 178, 51, int(70 * k))))
             p.drawEllipse(QRectF(CX * f - gw / 2, (FOOT_Y - 96) * f, gw, 104 * f))
