@@ -195,6 +195,9 @@ class ArenaWindow(QWidget):
         g = self.fx["grapple"]
         if g is not None:
             g["t"] += dt
+            # 角力时两虫持续振翅较劲
+            for i in (0, 1):
+                self.f[i][1].chirp = max(self.f[i][1].chirp, 0.2)
             k = min(1.0, g["t"] / g["dur"])
             shove = math.sin(g["t"] * 17.0) * 13.0 * (1.0 - k * 0.4)
             mx, my = g["mid"]
@@ -471,8 +474,10 @@ class ArenaWindow(QWidget):
                               "sx": sx, "sy": sy,
                               "tx": sx + (tx - sx) / n * reach,
                               "ty": sy + (ty - sy) / n * reach}
-                ch["thd"] = math.degrees(math.atan2(ty - sy, tx - sx))
-                ch["mode"], ch["mode_t"] = "wander", 0.5
+            ch["thd"] = math.degrees(math.atan2(ty - sy, tx - sx))
+            ch["mode"], ch["mode_t"] = "wander", 0.5
+            # 扑击时短促振翅示威
+            self.f[side][1].chirp = max(self.f[side][1].chirp, 0.3)
 
             if t == "hit":
                 self.fx["flash"][1 - side] = 0.22
@@ -557,6 +562,8 @@ class ArenaWindow(QWidget):
             elif e["reason"] == "士气崩溃":
                 loser = 1 - w
                 self.fx["flee"] = (loser, 0.0)
+                # 逃窜时惊慌振翅
+                self.f[loser][1].chirp = 0.6
                 self._log(f"{names[loser]} 斗性崩溃，掉头冲出罐外！")
             else:
                 self._log(f"战至超时，{e['reason']}"

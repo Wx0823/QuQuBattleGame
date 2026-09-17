@@ -331,14 +331,18 @@ def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
     p.setBrush(QBrush(body))
     p.drawEllipse(QRectF(-36, -12, 56, 24))
 
-    # 翅面：左右两片革质前翅，带纵纹与斜肩
+    # 翅面：左右两片革质前翅，鸣叫/示威时以翅根为轴快速震颤张开
+    wf = c.wing
     for s in (1, -1):
+        p.save()
+        p.translate(14, 1 * s)
+        p.rotate(wf * 10.0 * s)
         wing = QPainterPath()
-        wing.moveTo(14, 1 * s)
-        wing.quadTo(4, 12.5 * s, -16, 11 * s)
-        wing.quadTo(-32, 9.5 * s, -37, 3 * s)
-        wing.quadTo(-30, -2 * s, -8, -3.5 * s)
-        wing.quadTo(6, -4 * s, 14, 1 * s)
+        wing.moveTo(0, 0)
+        wing.quadTo(-10, 11.5 * s, -30, 10 * s)
+        wing.quadTo(-46, 8.5 * s, -51, 2 * s)
+        wing.quadTo(-44, -3 * s, -22, -4.5 * s)
+        wing.quadTo(-8, -5 * s, 0, 0)
         p.setPen(QPen(dk, 1.1))
         p.setBrush(QBrush(hi if s > 0 else body))
         p.drawPath(wing)
@@ -346,7 +350,8 @@ def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
         p.setPen(QPen(QColor(dk.red(), dk.green(), dk.blue(), 120), 0.9))
         for i in range(3):
             yy = (5 - i * 4) * s
-            p.drawLine(QPointF(8 - i * 2, 1.2 * s), QPointF(-30 + i, yy))
+            p.drawLine(QPointF(-6 - i * 2, 1.2 * s), QPointF(-44 + i, yy))
+        p.restore()
 
     # 后翅尖（交叠在尾端）
     p.setPen(QPen(dk, 1.0))
