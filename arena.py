@@ -82,16 +82,25 @@ class ArenaWindow(QWidget):
         self.seed = random.randrange(1 << 30)
         self.battle = Battle(self.db, self.f[0][0], self.f[1][0], seed=self.seed)
         self.acc = 0.0
-        self.intro_t = 1.0
+        self.intro_t = 1.6        # 入场仪式：从罐沿走到开战位
+        INTRO_DUR = 1.6
         self.end_t = -1.0
         self.shake_t = 0.0
         # 走位编排状态
         self.ch = []
+        self._rim = []
+        self._start = []
         for side in (0, 1):
             x = DISH_CX + (-128 if side == 0 else 128)
             y = DISH_CY + (14 if side == 0 else -14)
+            # 入场起点在罐沿（两侧对称的斜对角）
+            ang = math.radians(200 if side == 0 else -20)
+            rx = DISH_CX + math.cos(ang) * (DISH_R - 20)
+            ry = DISH_CY + math.sin(ang) * (DISH_R - 20)
+            self._rim.append((rx, ry))
+            self._start.append((x, y))
             self.ch.append({
-                "x": x, "y": y,
+                "x": rx, "y": ry,
                 "hd": 0.0 if side == 0 else 180.0,   # 当前朝向(度)
                 "thd": 0.0 if side == 0 else 180.0,  # 目标朝向
                 "wt": (x, y),                        # 游走目标点
@@ -108,7 +117,11 @@ class ArenaWindow(QWidget):
             "floats": [],          # (text, side, dy, life, color)
             "flee": None,          # (side, )
             "ko": None,
+            "ko_anim": None,       # {'side','t'} 掀翻动画
+            "grapple": None,       # {'t','dur','mid','ux','uy','ph'} 角力僵持
         }
+        self.dust = []             # 尘土粒子 [x, y, vx, vy, life, max]
+        self._last_hit = None      # (anim_t, side) 用于角力判定
         self.log = [" waiting"]
         self._prev_pos = [(self.ch[0]["x"], self.ch[0]["y"]),
                           (self.ch[1]["x"], self.ch[1]["y"])]
@@ -128,8 +141,22 @@ class ArenaWindow(QWidget):
         dt = 0.03
         self._anim_t = getattr(self, "_anim_t", 0.0) + dt
         if self.intro_t > 0:
+            # 入场仪式：从罐沿走到开战位（缓入缓出）
+            INTRO_DUR = 1.6
             self.intro_t -= dt
-        else:
+            prog = max(0.0, min(1.0, 1.0 - self.intro_t / INTRO_DUR))
+            ease = 1.0 - (1.0 - prog) ** 2
+            for i in (0, 1):
+                ch = self.ch[i]
+                rx, ry = self._rim[i]
+                sx, sy = self._start[i]
+                ch["x"] = rx + (sx - rx) * ease
+                ch["y"] = ry + (sy - ry) * ease
+                ch["thd"] = math.degrees(math.atan2(sy - ry, sx - rx))
+                c2 = self.f[i][1]
+                c2.move_amp = 0.65
+                c2.gait_phase += dt * 11.0
+        elif not self.battle.over:
             self.acc += dt
             tick = float(self.db.const("TICK", 0.1))
             while self.acc >= tick and not self.battle.over:
@@ -151,7 +178,46 @@ class ArenaWindow(QWidget):
             fl[3] -= dt
         self.fx["floats"] = [x for x in self.fx["floats"] if x[3] > 0]
 
+        # 掀翻动画推进
+        if self.fx["ko_anim"] is not None:
+            self.fx["ko_anim"]["t"] += dt
+
+        # 尘土粒子
+        for dpar in self.dust:
+            dpar[0] += dpar[2] * dt
+            dpar[1] += dpar[3] * dt
+            dpar[2] *= 1.0 - 3.5 * dt
+            dpar[3] *= 1.0 - 3.5 * dt
+            dpar[4] -= dt
+        self.dust = [d for d in self.dust if d[4] > 0]
+
+        # 角力僵持：锁住中线对推，期间普通走位与冲刺全部冻结
+        g = self.fx["grapple"]
+        if g is not None:
+            g["t"] += dt
+            k = min(1.0, g["t"] / g["dur"])
+            shove = math.sin(g["t"] * 17.0) * 13.0 * (1.0 - k * 0.4)
+            mx, my = g["mid"]
+            ux, uy = g["ux"], g["uy"]
+            a, b = self.ch[0], self.ch[1]
+            a["x"] = mx - ux * 40 - ux * shove
+            a["y"] = my - uy * 40 - uy * shove
+            b["x"] = mx + ux * 40 + ux * shove
+            b["y"] = my + uy * 40 + uy * shove
+            a["thd"] = b["thd"] = math.degrees(math.atan2(uy, ux))
+            if k >= 1.0:
+                self.fx["grapple"] = None
+                # 角力结束：不分胜负，各自弹开
+                for ch, sgn in ((a, -1.0), (b, 1.0)):
+                    ch["kn"][0] = ux * 250 * sgn
+                    ch["kn"][1] = uy * 250 * sgn
+                self._dust((mx + ux * 30, my + uy * 30), 10, 70)
+
         for i in (0, 1):
+            if self.fx["grapple"] is not None:
+                self.f[i][1].gait_phase += dt * 16.0   # 角力时腿在乱蹬
+                self.f[i][1].move_amp = 1.0
+                continue
             fleeing_i = self.fx["flee"] and self.fx["flee"][0] == i
             frozen = (self.fx["ko"] == i
                       or (fleeing_i and self.fx["flee"][1] >= 1))
@@ -350,6 +416,19 @@ class ArenaWindow(QWidget):
     def _float(self, text: str, side: int, color: str, dy: float = 0.0) -> None:
         self.fx["floats"].append([text, side, dy, 1.1, QColor(color)])
 
+    def _dust(self, pos: tuple, count: int, spread: float) -> None:
+        """扬起一撮沙尘（冲锋/受击/角力/倒地的地表反馈）。"""
+        if len(self.dust) > 90:
+            return
+        for _ in range(count):
+            ang = random.uniform(0, math.tau)
+            sp = random.uniform(0.2, 1.0) * spread
+            self.dust.append([
+                pos[0] + random.uniform(-8, 8),
+                pos[1] + random.uniform(-5, 5),
+                math.cos(ang) * sp, math.sin(ang) * sp * 0.6,
+                random.uniform(0.35, 0.7), 0.7])
+
     def _play(self, e: dict) -> None:
         t = e["type"]
         names = (self.f[0][0].name, self.f[1][0].name)
@@ -360,28 +439,60 @@ class ArenaWindow(QWidget):
             sx, sy = self.ch[side]["x"], self.ch[side]["y"]
             tx, ty = self._foe_pos(side)
             dist = math.hypot(tx - sx, ty - sy)
-            # 距离越远，扑击行程越长、耗时越久——远距离出招读作"反身扑击"，
-            # 而不是原地被拽到对手脸上。终点停在颚对颚（约 76px），身体不叠
-            reach = max(24.0, min(150.0, dist - 76))
-            dur = 0.24 + min(0.28, dist * 0.0014)
             n = dist or 1.0
             ch = self.ch[side]
-            ch["dash"] = {"t": 0.0, "dur": dur,
-                          "sx": sx, "sy": sy,
-                          "tx": sx + (tx - sx) / n * reach,
-                          "ty": sy + (ty - sy) / n * reach}
-            ch["thd"] = math.degrees(math.atan2(ty - sy, tx - sx))
-            ch["mode"], ch["mode_t"] = "wander", 0.5   # 出完招先稳一下再决定走位
+            in_grapple = self.fx["grapple"] is not None
+
+            if t == "hit":
+                # ---- 角力判定：双方短间隔互中 → 锁颚角力 ----
+                if (not in_grapple and self._last_hit is not None
+                        and self._last_hit[1] != side
+                        and self._anim_t - self._last_hit[0] < 0.55
+                        and dist < 130
+                        and self.fx["ko"] is None and self.fx["flee"] is None):
+                    mx, my = (sx + tx) / 2, (sy + ty) / 2
+                    self.fx["grapple"] = {
+                        "t": 0.0, "dur": 0.85, "mid": (mx, my),
+                        "ux": (tx - sx) / n, "uy": (ty - sy) / n}
+                    for cch in (self.ch[0], self.ch[1]):
+                        cch["dash"] = None
+                        cch["kn"] = [0.0, 0.0]
+                    self._dust((mx, my), 12, 80)
+                    self.shake_t = 0.25
+                    self._log("两虫锁颚角力，互不相让！")
+                self._last_hit = (self._anim_t, side)
+
+            if not in_grapple and self.fx["grapple"] is None:
+                # 距离越远，扑击行程越长、耗时越久——远距离出招读作"反身扑击"，
+                # 而不是原地被拽到对手脸上。终点停在颚对颚（约 76px），身体不叠
+                reach = max(24.0, min(150.0, dist - 76))
+                dur = 0.24 + min(0.28, dist * 0.0014)
+                ch["dash"] = {"t": 0.0, "dur": dur,
+                              "sx": sx, "sy": sy,
+                              "tx": sx + (tx - sx) / n * reach,
+                              "ty": sy + (ty - sy) / n * reach}
+                ch["thd"] = math.degrees(math.atan2(ty - sy, tx - sx))
+                ch["mode"], ch["mode_t"] = "wander", 0.5
+
             if t == "hit":
                 self.fx["flash"][1 - side] = 0.22
-                if e.get("crit"):
+                self._dust((tx, ty), 6, 55)
+                if e.get("counter"):
+                    # 克制命中：金色爆发
+                    self.shake_t = 0.45
+                    self._dust((tx, ty), 14, 90)
+                    self._float("克制!", 1 - side, "#FAC775", -56)
+                elif e.get("crit"):
                     self.shake_t = 0.3
-                # 受击退
-                kn = self.ch[1 - side]["kn"]
-                kn[0] = (tx - sx) / n * 230
-                kn[1] = (ty - sy) / n * 230
+                # 受击退（角力中被锁住不弹）
+                if self.fx["grapple"] is None:
+                    kn = self.ch[1 - side]["kn"]
+                    kn[0] = (tx - sx) / n * 230
+                    kn[1] = (ty - sy) / n * 230
+                dmg_color = "#FAC775" if e.get("counter") else (
+                    "#F09595" if side == 1 else "#E24B4A")
                 self._float(f"{'暴击 ' if e.get('crit') else ''}-{e['dmg']}",
-                            1 - side, "#F09595" if side == 1 else "#E24B4A", -34)
+                            1 - side, dmg_color, -34)
                 if e.get("guarded"):
                     self.fx["guard"][1 - side] = 0.5
                     self._float("格挡!", 1 - side, "#5DCAA5", -52)
@@ -395,6 +506,7 @@ class ArenaWindow(QWidget):
                 jn = math.hypot(jx, jy) or 1.0
                 dch["kn"][0] = jx / jn * 300
                 dch["kn"][1] = jy / jn * 300
+                self._dust((dch["x"], dch["y"]), 5, 45)
                 self._float("闪避", 1 - side, "#B4B2A9", -34)
                 self._log(f"{names[side]} 的「{e['move']}」被躲开了")
         elif t == "guard_up":
@@ -426,10 +538,13 @@ class ArenaWindow(QWidget):
             self.f[e["side"]][1].hop(95)
             self._log(f"{names[e['side']]} 缓过劲来，耐力回满！")
         elif t == "end":
-            self.end_t = 1.3
+            self.end_t = 1.6
             w = e["winner"]
             if e["reason"] == "击倒":
-                self.fx["ko"] = 1 - w
+                loser = 1 - w
+                self.fx["ko"] = loser
+                self.fx["ko_anim"] = {"side": loser, "t": 0.0}
+                self._dust((self.ch[loser]["x"], self.ch[loser]["y"]), 16, 90)
                 # 胜者不踩尸体：退开半步、转身高歌庆祝
                 wch = self.ch[w]
                 lch = self.ch[1 - w]
@@ -526,6 +641,7 @@ class ArenaWindow(QWidget):
             p.translate(random.uniform(-3, 3), random.uniform(-3, 3))
 
         self._draw_dish(p)
+        self._draw_dust(p)
         for i in (0, 1):
             self._draw_cricket(p, i)
         self._draw_bars(p)
@@ -571,23 +687,43 @@ class ArenaWindow(QWidget):
         p.drawLine(QPointF(DISH_CX - DISH_R + 16, DISH_CY),
                    QPointF(DISH_CX + DISH_R - 16, DISH_CY))
 
+    def _draw_dust(self, p: QPainter) -> None:
+        """沙尘粒子：扑击/受击/角力/掀翻时扬起。"""
+        for x, y, _vx, _vy, life, mx in self.dust:
+            a = int(150 * (life / mx))
+            r = 2.5 + 2.5 * (1.0 - life / mx)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(214, 199, 160, a)))
+            p.drawEllipse(QRectF(x - r, y - r, r * 2, r * 2))
+
     def _draw_cricket(self, p: QPainter, i: int) -> None:
         ch = self.ch[i]
         f, c, pal = self.f[i]
         opacity = 1.0
+        flip = 1.0
+        spin = 0.0
         if self.fx["flee"] and self.fx["flee"][0] == i:
             # 冲出罐沿后逐渐淡出
             d = math.hypot(ch["x"] - DISH_CX, ch["y"] - DISH_CY)
             opacity = max(0.0, 1.0 - max(0.0, d - DISH_R + 10) / 70.0)
             if opacity <= 0.0:
                 return
+        # KO 掀翻动画：自转 540° + 翻面（肚皮朝上，用腹色）
+        if (self.fx["ko"] == i and self.fx["ko_anim"] is not None
+                and self.fx["ko_anim"]["side"] == i):
+            k = min(1.0, self.fx["ko_anim"]["t"] / 0.6)
+            spin = 540.0 * k
+            flip = math.cos(k * math.pi)          # 1 → -1
+            if flip < 0:
+                pal = {"hi": pal["belly"], "body": pal["belly"],
+                       "dk": pal["dk"], "belly": pal["hi"]}
         # 近身收须：两只贴近时触须上扬收短，防绞成麻花
         fx_, fy_ = self._foe_pos(i)
         dist = math.hypot(fx_ - ch["x"], fy_ - ch["y"])
         ant_lift = max(0.0, min(1.0, 1.0 - (dist - 95.0) / 90.0))
-        angle = ch["hd"] + (26 if self.fx["ko"] == i else 0)
+        angle = ch["hd"] + spin + (26 if self.fx["ko"] == i else 0)
         paint_cricket_top(p, ch["x"], ch["y"], angle, CRICKET_SCALE,
-                          c, pal, opacity, ant_lift)
+                          c, pal, opacity, ant_lift, flip)
 
         # 受击闪白
         if self.fx["flash"][i] > 0:

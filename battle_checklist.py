@@ -97,6 +97,16 @@ def main() -> int:
     check("玩法·士气崩溃可触发",
           any(e["type"] == "end" and e["reason"] == "士气崩溃" for e in ev))
 
+    # 4.5 克制表：查表正确 + 实战中克制命中出现
+    check("公式·克制查表", db.counter("摔投", "格挡") == 1.3
+          and db.counter("轻咬", "格挡") == 0.45
+          and db.counter("冲撞", "冲撞") == 1.1)
+    n_counter = 0
+    for i in range(150):
+        _, ev = run_battle(random.randrange(1 << 30))
+        n_counter += sum(1 for e in ev if e.get("counter"))
+    check("玩法·克制命中出现", n_counter >= 5, f"150 场共 {n_counter} 次")
+
     # 5. 定向触发·力竭：耐力耗尽必然出力竭事件
     low_sta = {"name": "没劲的", "side": 1, "level": 1, "stats": {
         "hp": 500, "sta": 12, "atk": 5, "arm": 10, "spd": 10,

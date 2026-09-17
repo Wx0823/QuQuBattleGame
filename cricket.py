@@ -257,11 +257,13 @@ def paint_cricket(p: QPainter, cx: float, foot_y: float, scale: float,
 
 def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
                       scale: float, c: Cricket, palette: dict | None = None,
-                      opacity: float = 1.0, ant_lift: float = 0.0) -> None:
+                      opacity: float = 1.0, ant_lift: float = 0.0,
+                      flip_y: float = 1.0) -> None:
     """俯视画法。angle_deg=0 朝右(+x)，逆时针为负（Qt y 轴向下，正角即顺时针）。
 
     特征按真实斗蟋蟀俯视照取形：长触须、外撇大后腿、翅面纵纹、尾须。
     ant_lift: 0~1，近身时收须上抬的程度（防两只的触须绞成麻花）。
+    flip_y: 1=背面朝上；-1=被掀翻肚皮朝上（KO 用），配合反色 palette。
     """
     pal = palette or DEFAULT_PALETTE
     hi, body, dk, belly = pal["hi"], pal["body"], pal["dk"], pal["belly"]
@@ -278,7 +280,8 @@ def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
     # 移动时身体轻微摇摆 + 沿前进方向拉伸，踩点更实
     p.rotate(angle_deg + math.sin(c.gait_phase) * 1.5 * c.move_amp)
     lean = 0.06 * c.move_amp
-    p.scale(scale * breathe * (1.0 + lean), scale / breathe * (1.0 - lean * 0.5))
+    p.scale(scale * breathe * (1.0 + lean),
+            scale / breathe * (1.0 - lean * 0.5) * flip_y)
 
     # 影子（略向右下偏，制造一点离地感）
     p.setPen(Qt.PenStyle.NoPen)

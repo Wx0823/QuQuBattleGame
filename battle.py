@@ -52,6 +52,7 @@ class Fighter:
 
         self.cool = 0.0           # 出手冷却倒计时
         self.exhausted_until = -1.0
+        self.last_move = None     # 上一次使用的招式名（克制表查「攻方招>守方上招」）
         self.statuses: dict[str, dict] = {}   # sid -> {'until': t, 'stacks': n}
         self._bleed_next = 0.0
         self.dealt = 0.0          # 累计输出
@@ -229,6 +230,7 @@ class Battle:
         self.rounds += 1
         cost = float(mv.get("耐力消耗", 0))
         f.sta = max(0.0, f.sta - cost)
+        f.last_move = mv.get("名称", mid)   # 供对手后续攻击查克制表
         if f.sta <= 0.0:
             f.exhausted_until = self.t + float(self.db.const("EXHAUST_TIME", 1.5))
             f.apply_status("s001", self.t, float(self.db.const("EXHAUST_TIME", 1.5)))
@@ -268,6 +270,11 @@ class Battle:
         crit = (self.rng.uniform(0, 100)
                 < f.crit + float(mv.get("暴击修正", 0)))
         raw = atk_eff * float(mv.get("伤害系数", 1)) * self.sudden_mult
+
+        # 克制表：攻方招式 vs 守方上一次招式（如摔投克格挡、轻咬被格挡压）
+        mult = self.db.counter(mv.get("名称", mid), foe.last_move or "")
+        is_counter = mult >= 1.15
+        raw *= mult
         if crit:
             raw *= float(self.db.const("CRIT_MULT", 1.5))
 
@@ -288,6 +295,7 @@ class Battle:
         ev.append({"t": self.t, "type": "hit", "side": f.side,
                    "move": mv.get("名称", mid), "anim": mv.get("动画", "bite"),
                    "dmg": round(dmg, 1), "crit": crit, "guarded": guarded,
+                   "counter": is_counter,
                    "hp": round(foe.hp, 1), "foe_morale": round(foe.morale, 1)})
 
         # 士气：受伤按比例掉；被暴击、被打出重伤都额外挫志
