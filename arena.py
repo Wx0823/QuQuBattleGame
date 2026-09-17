@@ -743,12 +743,19 @@ class ArenaWindow(QWidget):
             p.drawEllipse(QRectF(-48, -26, 110, 52))
             p.restore()
 
-        # 格挡护罩
+        # 格挡护罩：脉动圆环 + 「格挡中」标签，一眼读懂当前姿态
         if self.fx["guard"][i] > 0:
-            a = int(160 * min(1.0, self.fx["guard"][i] / 0.5))
+            k = min(1.0, self.fx["guard"][i] / 0.5)
+            a = int(170 * k)
+            pulse = 1.0 + 0.07 * math.sin(self._anim_t * 13.0)
+            r = 46.0 * pulse
             p.setPen(QPen(QColor(93, 202, 165, a), 3.0))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QRectF(ch["x"] - 46, ch["y"] - 46, 92, 92))
+            p.drawEllipse(QRectF(ch["x"] - r, ch["y"] - r, r * 2, r * 2))
+            p.setPen(QPen(QColor(93, 202, 165, min(255, a + 70))))
+            p.setFont(QFont("Microsoft YaHei", 8, QFont.Weight.DemiBold))
+            p.drawText(QRectF(ch["x"] - 52, ch["y"] - r - 20, 104, 16),
+                       Qt.AlignmentFlag.AlignCenter, "格挡中")
 
         # 倒下灰化
         if self.fx["ko"] == i:
