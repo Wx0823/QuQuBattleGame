@@ -147,10 +147,16 @@ class Battle:
     def _foe(self, f: Fighter) -> Fighter:
         return self.fighters[1 - f.side]
 
-    def _morale_loss(self, dmg: float, guts: float) -> float:
-        """每点伤害造成的士气损失，斗性高的蛐蛐更扛得住心理打击。"""
+    def _morale_loss(self, dmg: float, guts: float, hp_max: float) -> float:
+        """伤害造成的士气损失，按受击方最大血量归一。
+
+        数值表的 MORALE_LOSS_PER_DMG 语义以基准血量 100 为准 ——
+        否则高等级伤害膨胀后 3~4 击就士气崩溃，士气系统在高等级失效。
+        斗性高的蛐蛐更扛得住心理打击。
+        """
+        norm = 100.0 / max(1.0, hp_max)
         return dmg * float(self.db.const("MORALE_LOSS_PER_DMG", 0.35)) \
-            * GUTS_SOFT / (GUTS_SOFT + guts)
+            * norm * GUTS_SOFT / (GUTS_SOFT + guts)
 
     def _drain_morale(self, f: Fighter, amount: float, ev: list) -> None:
         """扣士气并在归零时判败退。所有掉士气的路径都走这里。"""
@@ -168,7 +174,8 @@ class Battle:
                 f._bleed_next = self.t + float(self.db.const("BLEED_INTERVAL", 0.5))
                 dmg = float(self.db.const("BLEED_PER_TICK", 3)) * f.statuses["s002"]["stacks"]
                 self._lose_hp(f, dmg, ev, kind="bleed")
-                self._drain_morale(f, self._morale_loss(dmg, f.guts), ev)
+                self._drain_morale(
+                    f, self._morale_loss(dmg, f.guts, f.hp_max), ev)
         # 状态到期清理；力竭到期时按状态表语义「恢复后耐力回满」
         for sid in [k for k, v in f.statuses.items() if v["until"] <= self.t]:
             del f.statuses[sid]
@@ -299,7 +306,7 @@ class Battle:
                    "hp": round(foe.hp, 1), "foe_morale": round(foe.morale, 1)})
 
         # 士气：受伤按比例掉；被暴击、被打出重伤都额外挫志
-        loss = self._morale_loss(dmg, foe.guts)
+        loss = self._morale_loss(dmg, foe.guts, foe.hp_max)
         if crit:
             loss += float(self.db.const("MORALE_CRIT_LOSS", 3))
         if dmg >= foe.hp_max * BIG_HIT_RATIO:

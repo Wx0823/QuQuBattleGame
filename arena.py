@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
 
 from battle import Battle, make_fighter
 from cricket import Cricket, paint_cricket_top, palette_from_hex
+from dungeon import DungeonRun
+from panel import CardPanel
 from stats import StatsDB, fmt_num
 
 WIN_W, WIN_H = 760, 540
@@ -43,20 +45,49 @@ RIM_DK = QColor("#57492F")
 class ArenaWindow(QWidget):
     """俯视斗蛐蛐罐。"""
 
-    def __init__(self, pet):
+    def __init__(self, pet, diff_id: str | None = None, resume: bool = False):
         super().__init__()
         self.pet = pet
         self.db = StatsDB()
         self.setWindowTitle("蛐蛐竞技场")
         self.setFixedSize(WIN_W, WIN_H)
+        # 副本模式：diff_id=新开难度；resume=续打断点；两者都空 = 普通对战
+        self.drun: DungeonRun | None = None
+        self._frac = [1.0, 1.0]     # 玩家血/耐 跨场保留比例
+        self._rest_t = 0.0          # 敌人间休整
+        self._rest_msg = ""
+        self._enter = None          # 新敌人入场走路动画
+        self._pending_end = None
+        self.dungeon_result = None  # 通关结算数据
 
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self._frame)
 
         self._build_result_overlay()
-        self._restart()
+        if diff_id:
+            self.drun = DungeonRun(self.db, diff_id)
+            self._start_dungeon()
+        elif resume:
+            loaded = DungeonRun.load_run(self.db)
+            if loaded:
+                self.drun, hp, sta = loaded
+                probe = self._make_player_fighter()
+                self._frac = [max(0.05, min(1.0, hp / max(1.0, probe.hp_max))),
+                              max(0.05, min(1.0, sta / max(1.0, probe.sta_max)))]
+                self._start_dungeon()
+            else:
+                self._restart()
+        else:
+            self._restart()
         self.show_center()
+
+    def _make_player_fighter(self):
+        """按当前等级构建玩家战斗体（副本模式下血耐由 _frac 结转）。"""
+        sp = self.db.species(self.pet.species_id) or {}
+        f = make_fighter(self.db, 0, f"{sp.get('名称', '蛐蛐')}·我方",
+                         self.pet.species_id, self.pet.level, self.pet.talents)
+        return f
 
     # ---------- 开局 ----------
 
@@ -77,13 +108,11 @@ class ArenaWindow(QWidget):
         c.act_next = 9999
         return f, c, pal
 
-    def _restart(self) -> None:
-        self.f = [self._make_side(0), self._make_side(1)]
+    def _reset_field(self, intro: float = 1.6) -> None:
+        """清空场地状态（Fighter 由调用方放置）。intro=0 表示入场由 _enter 接管。"""
         self.seed = random.randrange(1 << 30)
-        self.battle = Battle(self.db, self.f[0][0], self.f[1][0], seed=self.seed)
         self.acc = 0.0
-        self.intro_t = 1.6        # 入场仪式：从罐沿走到开战位
-        INTRO_DUR = 1.6
+        self.intro_t = intro
         self.end_t = -1.0
         self.shake_t = 0.0
         # 走位编排状态
@@ -122,11 +151,103 @@ class ArenaWindow(QWidget):
         }
         self.dust = []             # 尘土粒子 [x, y, vx, vy, life, max]
         self._last_hit = None      # (anim_t, side) 用于角力判定
+        self._pending_end = None   # 副本模式下暂存的战斗结束事件
         self.log = [" waiting"]
         self._prev_pos = [(self.ch[0]["x"], self.ch[0]["y"]),
                           (self.ch[1]["x"], self.ch[1]["y"])]
         self.result_box.hide()
+
+    def _restart(self) -> None:
+        """普通对战：双方一起入场。"""
+        self.drun = None
+        self.dungeon_result = None
+        self._frac = [1.0, 1.0]
+        self._rest_t = 0.0
+        self._enter = None
+        self._reset_field(intro=1.6)
+        self.f = [self._make_side(0), self._make_side(1)]
+        self.battle = Battle(self.db, self.f[0][0], self.f[1][0], seed=self.seed)
         self.timer.start()
+
+    # ---------- 副本模式 ----------
+
+    def _start_dungeon(self) -> None:
+        self._reset_field(intro=0.0)
+        # 玩家直接站在开战位（只有敌人需要从罐沿入场）
+        self.ch[0]["x"], self.ch[0]["y"] = self._start[0]
+        self.ch[0]["hd"] = self.ch[0]["thd"] = 0.0
+        player = self._make_player_fighter()
+        player.hp = max(1.0, player.hp_max * self._frac[0])
+        player.sta = max(1.0, player.sta_max * self._frac[1])
+        pc = Cricket()
+        pc.act_next = 9999
+        self.f = [(player, pc, self.pet.palette), None]
+        self.battle = None
+        self._prev_pos[0] = self._start[0]
+        self.log = [f"进入「{self.drun.diff_name()}」副本"]
+        self.timer.start()
+        self._spawn_enemy()
+
+    def _spawn_enemy(self) -> None:
+        """生成当前敌人，从罐沿走入战场。"""
+        enemy = self.drun.make_enemy(self.drun.eidx)
+        sp = self.db.species(enemy.species_id) or {}
+        c = Cricket()
+        c.act_next = 9999
+        c.facing = c.facing_target = -1.0
+        self.f[1] = (enemy, c, palette_from_hex(str(sp.get("主色", "#6FA83C"))))
+        self.ch[1]["x"], self.ch[1]["y"] = self._rim[1]
+        self.ch[1]["thd"] = self.ch[1]["hd"] = math.degrees(
+            math.atan2(self._start[1][1] - self._rim[1][1],
+                       self._start[1][0] - self._rim[1][0]))
+        self._prev_pos[1] = (self.ch[1]["x"], self.ch[1]["y"])
+        self._enter = {"side": 1, "t": 0.0, "dur": 1.0}
+
+    def _begin_battle(self) -> None:
+        self.battle = Battle(self.db, self.f[0][0], self.f[1][0], seed=self.seed)
+        self.acc = 0.0
+
+    def _rest(self, seconds: float, msg: str) -> None:
+        self._rest_t = seconds
+        self._rest_msg = msg
+        self._log(msg)
+
+    def _dungeon_advance(self) -> None:
+        """一场副本战斗结束后的推进：结算/回血/换敌/退层/通关。"""
+        e = self._pending_end or {}
+        win = e.get("winner") == 0
+        player = self.f[0][0]
+        self._frac = [max(0.05, min(1.0, player.hp / player.hp_max)),
+                      max(0.05, min(1.0, player.sta / player.sta_max))]
+        res = self.drun.on_fight_end(win)
+        if win:
+            # 胜利回血：+25% HP / +30% STA
+            self._frac[0] = min(1.0, self._frac[0] + 0.25)
+            self._frac[1] = min(1.0, self._frac[1] + 0.30)
+            self.pet._add_xp(res.get("xp", 0))
+            self._float(f"+{res.get('xp', 0)} 经验", 0, "#97C459", -30)
+        else:
+            self._frac = [1.0, 1.0]   # 战败满血重来
+            self.pet._add_xp(res.get("xp", 0))
+            self._float(f"+{res.get('xp', 0)} 经验", 0, "#8B97A6", -30)
+        r = res["result"]
+        if r == "next":
+            self._rest(1.6, "敌方增援来袭！")
+        elif r == "floor_clear":
+            # 清层休整：血量回满进下一层，避免跨层血量死亡螺旋
+            self._frac = [1.0, 1.0]
+            self._rest(2.4, f"第 {res.get('floor', '?')} 层攻克！休整完毕")
+        elif r == "retry":
+            self._rest(2.4, f"战败…退回第 {res.get('floor', 1)} 层，整备再战")
+        elif r == "diff_clear":
+            DungeonRun.clear_run()   # 通关清除断点
+            self.dungeon_result = res
+            self._show_result()
+            return
+        # 存断点
+        probe = self._make_player_fighter()
+        self.drun.save(self._frac[0] * probe.hp_max,
+                       self._frac[1] * probe.sta_max)
 
     def show_center(self) -> None:
         scr = self.screen().availableGeometry()
@@ -140,7 +261,37 @@ class ArenaWindow(QWidget):
     def _frame(self) -> None:
         dt = 0.03
         self._anim_t = getattr(self, "_anim_t", 0.0) + dt
-        if self.intro_t > 0:
+        if self.drun is not None:
+            # ---- 副本模式：休整 → 新敌入场 → 开战 ----
+            if self._rest_t > 0:
+                self._rest_t -= dt
+                if self._rest_t <= 0:
+                    self._spawn_enemy()
+            elif self._enter is not None:
+                e = self._enter
+                e["t"] += dt
+                k = min(1.0, e["t"] / e["dur"])
+                ease = 1.0 - (1.0 - k) ** 2
+                ch = self.ch[e["side"]]
+                ch["x"] = self._rim[e["side"]][0] + \
+                    (self._start[e["side"]][0] - self._rim[e["side"]][0]) * ease
+                ch["y"] = self._rim[e["side"]][1] + \
+                    (self._start[e["side"]][1] - self._rim[e["side"]][1]) * ease
+                ch["thd"] = 180.0
+                c2 = self.f[e["side"]][1]
+                c2.move_amp = 0.7
+                c2.gait_phase += dt * 11.0
+                if k >= 1.0:
+                    self._enter = None
+                    self._begin_battle()
+            elif self.battle is not None and not self.battle.over:
+                self.acc += dt
+                tick = float(self.db.const("TICK", 0.1))
+                while self.acc >= tick and not self.battle.over:
+                    self.acc -= tick
+                    for e in self.battle.step():
+                        self._play(e)
+        elif self.intro_t > 0:
             # 入场仪式：从罐沿走到开战位（缓入缓出）
             INTRO_DUR = 1.6
             self.intro_t -= dt
@@ -156,7 +307,7 @@ class ArenaWindow(QWidget):
                 c2 = self.f[i][1]
                 c2.move_amp = 0.65
                 c2.gait_phase += dt * 11.0
-        elif not self.battle.over:
+        elif self.battle is not None and not self.battle.over:
             self.acc += dt
             tick = float(self.db.const("TICK", 0.1))
             while self.acc >= tick and not self.battle.over:
@@ -167,7 +318,10 @@ class ArenaWindow(QWidget):
         if self.end_t > 0:
             self.end_t -= dt
             if self.end_t <= 0:
-                self._show_result()
+                if self.drun is not None:
+                    self._dungeon_advance()
+                else:
+                    self._show_result()
 
         self.shake_t = max(0.0, self.shake_t - dt)
         for k in (0, 1):
@@ -543,6 +697,7 @@ class ArenaWindow(QWidget):
             self.f[e["side"]][1].hop(95)
             self._log(f"{names[e['side']]} 缓过劲来，耐力回满！")
         elif t == "end":
+            self._pending_end = e
             self.end_t = 1.6
             w = e["winner"]
             if e["reason"] == "击倒":
@@ -606,7 +761,8 @@ class ArenaWindow(QWidget):
                "QPushButton#gray:hover{background:rgba(255,255,255,0.14);}")
         b_again = QPushButton("再来一场")
         b_again.setStyleSheet(css)
-        b_again.clicked.connect(self._restart)
+        b_again.clicked.connect(self._on_again)
+        self.r_again_btn = b_again
         b_close = QPushButton("收兵")
         b_close.setObjectName("gray")
         b_close.setStyleSheet(css)
@@ -616,6 +772,9 @@ class ArenaWindow(QWidget):
         root.addLayout(btns)
 
     def _show_result(self) -> None:
+        if self.drun is not None:
+            self._show_dungeon_result()
+            return
         w = self.battle.winner
         a, b = self.battle.fighters
         title = "平局" if w is None else ("胜利！" if w == 0 else "战败…")
@@ -636,6 +795,47 @@ class ArenaWindow(QWidget):
         self.result_box.show()
         self.result_box.raise_()
 
+    def _show_dungeon_result(self) -> None:
+        """难度通关结算。"""
+        res = self.dungeon_result or {}
+        first = res.get("first_clear", False)
+        self.r_title.setText("首通！" if first else "通关！")
+        self.r_title.setStyleSheet(
+            "border:none; color:#FAC775; font-size:22px; font-weight:600;")
+
+        order = self.db.data.get("_副本难度顺序", [])
+        idx = order.index(self.drun.diff_id) if self.drun.diff_id in order else -1
+        self._next_diff = order[idx + 1] if 0 <= idx + 1 < len(order) else None
+        if self._next_diff:
+            nxt_name = self.db.data["副本难度"][self._next_diff].get("名称", "")
+            self.r_again_label = f"挑战「{nxt_name}」"
+        else:
+            self.r_again_label = "再战本难度"
+
+        a, b = self.battle.fighters
+        self.r_detail.setText(
+            f"「{self.drun.diff_name()}」副本攻略完成\n"
+            f"总击杀 {self.drun.kills} 只 · 累计经验 {fmt_num(self.drun.total_xp)}\n"
+            f"终局：{e_reason(self.battle.end_reason)}\n"
+            f"当前等级 Lv.{self.pet.level}"
+            + ("（首通记录已保存）" if first else ""))
+        self.r_title.setHidden(False)
+        self.r_again_btn.setText(getattr(self, "r_again_label", "再来一场"))
+        self.result_box.show()
+        self.result_box.raise_()
+
+    def _on_again(self) -> None:
+        """结算面板的「再来一场」：PVP 重开；副本通关后进下一难度。"""
+        if self.drun is not None and getattr(self, "_next_diff", None):
+            self.drun = DungeonRun(self.db, self._next_diff)
+            self._frac = [1.0, 1.0]
+            self.dungeon_result = None
+            self._pending_end = None
+            self._next_diff = None
+            self._start_dungeon()
+        else:
+            self._restart()
+
     # ---------- 绘制 ----------
 
     def paintEvent(self, event) -> None:
@@ -652,6 +852,8 @@ class ArenaWindow(QWidget):
         for i in (0, 1):
             self._draw_cricket(p, i)
         self._draw_bars(p)
+        if self.drun is not None:
+            self._draw_dungeon_hud(p)
         self._draw_floats(p)
         self._draw_log(p)
         if self.intro_t > 0:
@@ -693,6 +895,18 @@ class ArenaWindow(QWidget):
         p.setPen(QPen(FLOOR_RING, 1.0))
         p.drawLine(QPointF(DISH_CX - DISH_R + 16, DISH_CY),
                    QPointF(DISH_CX + DISH_R - 16, DISH_CY))
+
+    def closeEvent(self, event) -> None:
+        # 副本中断点保存：回来可续打
+        if self.drun is not None:
+            if self.battle is not None and not self.battle.over:
+                player = self.f[0][0]
+                self.drun.save(player.hp, player.sta)
+            elif self.dungeon_result is None:
+                probe = self._make_player_fighter()
+                self.drun.save(self._frac[0] * probe.hp_max,
+                               self._frac[1] * probe.sta_max)
+        super().closeEvent(event)
 
     def _draw_dust(self, p: QPainter) -> None:
         """沙尘粒子：扑击/受击/角力/掀翻时扬起。"""
@@ -800,7 +1014,7 @@ class ArenaWindow(QWidget):
             self._bar(p, x, ROW_MOR, BAR_W, 6, f.morale / 100.0,
                       "#EF9F27", None, right)
             # 状态角标
-            t = self.battle.t
+            t = self.battle.t if self.battle is not None else 0.0
             chips = [(STATUS_COLOR[sid][0], STATUS_COLOR[sid][1], st["stacks"])
                      for sid, st in f.statuses.items()
                      if st["until"] > t and sid in STATUS_COLOR]
@@ -815,6 +1029,35 @@ class ArenaWindow(QWidget):
                 p.drawText(QRectF(cx, ROW_MOR + 12, 34, 18),
                            Qt.AlignmentFlag.AlignCenter, txt)
                 cx += 36
+
+    def _draw_dungeon_hud(self, p: QPainter) -> None:
+        """副本进度 HUD：难度 / 层 / 敌序 / 总进度条。"""
+        n = self.drun.n_enemies
+        eidx = min(self.drun.eidx + 1, n)
+        prog = ((self.drun.floor - 1) * n + self.drun.eidx) \
+            / (20.0 * n)
+        cx = WIN_W / 2
+        p.setPen(QPen(QColor("#E8EDF2")))
+        p.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.DemiBold))
+        p.drawText(QRectF(cx - 160, 14, 320, 20),
+                   Qt.AlignmentFlag.AlignCenter,
+                   f"{self.drun.diff_name()}  ·  第 {self.drun.floor}/20 层"
+                   f"  ·  敌人 {eidx}/{n}")
+        # 总进度条
+        bw = 260
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(0, 0, 0, 110)))
+        p.drawRoundedRect(QRectF(cx - bw / 2, 38, bw, 9), 4.5, 4.5)
+        p.setBrush(QBrush(QColor("#FAC775")))
+        p.drawRoundedRect(QRectF(cx - bw / 2 + 1, 39,
+                                 max(7.0, (bw - 2) * max(0.0, min(1.0, prog))),
+                                 7), 3.5, 3.5)
+        # 休整提示
+        if self._rest_t > 0:
+            p.setPen(QPen(QColor("#FAC775")))
+            p.setFont(QFont("Microsoft YaHei", 11, QFont.Weight.DemiBold))
+            p.drawText(QRectF(cx - 160, DISH_CY - 140, 320, 24),
+                       Qt.AlignmentFlag.AlignCenter, self._rest_msg)
 
     def _draw_floats(self, p: QPainter) -> None:
         font = QFont("Microsoft YaHei", 13, QFont.Weight.DemiBold)
@@ -854,3 +1097,67 @@ def e_reason(r: str) -> str:
             "士气崩溃": "一方斗性崩溃，掉头败退",
             "判定获胜": "战至超时，按剩余血量判定",
             "势均力敌": "战至超时，不分胜负"}.get(r, r)
+
+
+class DungeonSelect(CardPanel):
+    """副本难度选择面板。"""
+
+    def __init__(self, pet, on_start):
+        from panel import CardPanel
+        CardPanel.__init__(self, "挑战副本", 400, 560)
+        self.on_start = on_start
+        self.db = StatsDB()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 14, 18, 16)
+        root.setSpacing(6)
+        self.build_header(root)
+
+        css = ("QPushButton{text-align:left; color:#E8EDF2;"
+               "background:rgba(255,255,255,0.06);"
+               "border:1px solid rgba(255,255,255,0.12); border-radius:6px;"
+               "padding:7px 10px; font-size:12px;}"
+               "QPushButton:hover{background:rgba(143,209,79,0.28);}"
+               "QPushButton:disabled{color:#55606E; background:rgba(255,255,255,0.03);}")
+
+        loaded = DungeonRun.load_run(self.db)
+        if loaded:
+            dr, _hp, _sta = loaded
+            b = QPushButton(f"▶ 继续进度：{dr.diff_name()} 第 {dr.floor} 层")
+            b.setStyleSheet(css + "QPushButton{color:#8FD14F;}")
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda: self._go(None))
+            root.addWidget(b)
+
+        cleared = DungeonRun.load_cleared()
+        order = self.db.data.get("_副本难度顺序", [])
+        for did in order:
+            conf = self.db.data["副本难度"].get(did, {})
+            if not conf:
+                continue
+            pre = str(conf.get("解锁前置", "") or "")
+            unlocked = (not pre) or (pre in cleared)
+            done = did in cleared
+            label = (f"{conf.get('名称', did)}    "
+                     f"{conf.get('每层敌人数', 3)} 敌/层 · "
+                     f"Lv{conf.get('等级下限', 1)}-{conf.get('等级上限', 10)}"
+                     + ("   ✓已通关" if done else ""))
+            b = QPushButton(label)
+            b.setStyleSheet(css)
+            b.setEnabled(unlocked)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            if not unlocked:
+                b.setText(label + "（通关上一难度解锁）")
+            b.clicked.connect(lambda _=False, d=did: self._go(d))
+            root.addWidget(b)
+
+        root.addStretch()
+        hint = QLabel("击败当前敌人后自动增援下一只，清层自动推进；"
+                      "战败退回上一层重来（新手第 1 层除外）")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#55606E; font-size:11px;")
+        root.addWidget(hint)
+
+    def _go(self, diff_id: str | None) -> None:
+        self.hide()
+        self.on_start(diff_id)

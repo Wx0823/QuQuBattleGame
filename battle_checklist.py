@@ -16,10 +16,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from battle import Battle, Fighter, make_fighter
+from dungeon import DungeonRun
 from stats import StatsDB
 
 db = StatsDB()
 RESULTS: list[tuple[str, bool, str]] = []
+
+# 各难度入场等级（对应副本规划的玩家成长节奏）
+ENTRY_LV = {"d01": 1, "d02": 7, "d03": 12, "d04": 17, "d05": 23,
+            "d06": 29, "d07": 36, "d08": 44, "d09": 53, "d10": 63}
 
 
 def check(name: str, ok: bool, note: str = "") -> None:
@@ -92,8 +97,11 @@ def main() -> int:
     check("玩法·击倒结局存在", "击倒" in reasons)
     scare = {"name": "胆气弱", "side": 1, "level": 8, "stats": {
         "hp": 160, "sta": 90, "atk": 20, "arm": 20, "spd": 20,
-        "sta_regen": 6, "crit": 0, "guts": 10, "morale": 45, "pen": 0}}
-    _, ev = run_battle(19, ra=scare)
+        "sta_regen": 6, "crit": 0, "guts": 5, "morale": 40, "pen": 0}}
+    bully = {"name": "恶霸", "side": 0, "level": 8, "stats": {
+        "hp": 300, "sta": 90, "atk": 38, "arm": 25, "spd": 24,
+        "sta_regen": 7, "crit": 0, "guts": 60, "morale": 100, "pen": 0}}
+    _, ev = run_battle(19, la=bully, ra=scare)
     check("玩法·士气崩溃可触发",
           any(e["type"] == "end" and e["reason"] == "士气崩溃" for e in ev))
 
@@ -146,6 +154,25 @@ def main() -> int:
     ok_smoke = _arena_smoke()
     check("表现·竞技场离屏跑完整场", ok_smoke)
 
+    # 10. 副本曲线：挂机模拟全部难度，校准通关时长
+    rows = check_dungeon_curve()
+    d01 = next((r for r in rows if r["id"] == "d01"), None)
+    check("副本·新手 30 分钟档", d01 is not None and d01["done"]
+          and 15 <= d01["time"] / 60 <= 50,
+          f"{d01['time']/60:.1f}min" if d01 else "")
+    check("副本·d01-d08 可通关", all(
+        r["done"] for r in rows if r["id"] in ("d01", "d02", "d03", "d04",
+                                               "d05", "d06", "d07", "d08")))
+    d09r = next(r for r in rows if r["id"] == "d09")
+    d10r = next(r for r in rows if r["id"] == "d10")
+    check("副本·绝望为长线墙（可达 19 层，通关需场外成长）",
+          d09r["max_floor"] >= 19, f"最远第 {d09r['max_floor']} 层")
+    check("副本·真神为终极天花板（入场即硬墙，不崩即可）",
+          d10r["max_floor"] >= 2, f"最远第 {d10r['max_floor']} 层")
+    times = [r["time"] / 60 for r in rows]
+    check("副本·难度耗时递增", all(a <= b * 1.6 for a, b in zip(times, times[1:])),
+          "->".join(f"{t:.0f}" for t in times))
+
     print()
     fails = [r for r in RESULTS if not r[1]]
     print(f"== {len(RESULTS) - len(fails)}/{len(RESULTS)} 通过 ==")
@@ -192,6 +219,89 @@ def _arena_smoke() -> bool:
         import traceback
         traceback.print_exc()
         return False
+
+
+def _level_from_xp(xp: int) -> int:
+    lv = 1
+    while xp >= db.exp_need(lv) and lv < 300:
+        xp -= db.exp_need(lv)
+        lv += 1
+    return lv
+
+
+def _cum_exp(lv: int) -> int:
+    """累计经验：从 1 级升到 lv 所需总量。"""
+    t = 0
+    for k in range(1, lv):
+        t += db.exp_need(k)
+    return t
+
+
+def sim_dungeon(diff_id: str, seed: int = 1) -> dict:
+    """无动画快进模拟：玩家按入场等级自动挂完整个副本。
+
+    返回 {time(秒), retries, lv(最终等级), done}。
+    """
+    dr = DungeonRun(db, diff_id, seed=seed)
+    # 玩家带着入场等级的累计经验进入，副本内经验是增量
+    xp_base = _cum_exp(ENTRY_LV.get(diff_id, 1))
+    xp_total = 0
+    t = 0.0
+    retries = 0
+    frac_hp = frac_sta = 1.0
+    max_floor = 1
+    guard = 0
+    while guard < 15000:
+        guard += 1
+        lv = _level_from_xp(xp_base + xp_total)
+        stats, _ = db.compute("c001", lv)
+        pf = Fighter("模拟玩家", 0, lv, stats)
+        pf.hp = max(1.0, pf.hp_max * frac_hp)
+        pf.sta = max(1.0, pf.sta_max * frac_sta)
+        ef = dr.make_enemy(dr.eidx)
+        b = Battle(db, pf, ef, seed=dr.rng.randrange(1 << 30))
+        for _ in range(2000):
+            b.step()
+            if b.over:
+                break
+        t += b.t + 2.0   # 战斗时长 + 敌人间休整
+        win = b.winner == 0
+        frac_hp = max(0.02, pf.hp / pf.hp_max)
+        frac_sta = max(0.02, pf.sta / pf.sta_max)
+        res = dr.on_fight_end(win)
+        xp_total += res.get("xp", 0)
+        if win:
+            frac_hp = min(1.0, frac_hp + 0.50)
+            frac_sta = min(1.0, frac_sta + 0.30)
+        else:
+            frac_hp = frac_sta = 1.0
+            retries += 1
+        if res["result"] == "floor_clear":
+            frac_hp = frac_sta = 1.0   # 清层休整回满
+        if dr.floor > max_floor:
+            max_floor = dr.floor
+        if res["result"] == "diff_clear":
+            lv = _level_from_xp(xp_base + xp_total)
+            return {"time": t, "retries": retries, "lv": lv,
+                    "done": True, "max_floor": max_floor}
+    lv = _level_from_xp(xp_base + xp_total)
+    return {"time": t, "retries": retries, "lv": lv,
+            "done": False, "max_floor": max_floor}
+
+
+def check_dungeon_curve() -> list[dict]:
+    """模拟全部 10 档难度，输出通关时长曲线。"""
+    print("  -- 副本挂机模拟（4h/日生态校准） --")
+    print("  难度   通关耗时   重试   最终等级")
+    rows = []
+    for did in ["d01", "d02", "d03", "d04", "d05",
+                "d06", "d07", "d08", "d09", "d10"]:
+        r = sim_dungeon(did, seed=42)
+        name = db.data["副本难度"][did].get("名称", did)
+        flag = "" if r["done"] else f"  [未通·最远第{r['max_floor']}层]"
+        print(f"  {name:<4} {r['time']/60:7.1f}min  {r['retries']:4d}   Lv.{r['lv']}{flag}")
+        rows.append({"id": did, "name": name, **r})
+    return rows
 
 
 if __name__ == "__main__":

@@ -172,12 +172,15 @@ class Pet(QWidget):
         menu.setFont(QFont("Microsoft YaHei", 9))
         act_fight = QAction("发起对战", self)
         act_fight.triggered.connect(self._open_arena)
+        act_dungeon = QAction("挑战副本", self)
+        act_dungeon.triggered.connect(self._open_dungeon_select)
         act_attr = QAction("蛐蛐属性", self)
         act_attr.triggered.connect(self._toggle_panel)
         act_cfg = QAction("蛐蛐设置", self)
         act_cfg.triggered.connect(self._toggle_settings)
         act_quit = QAction("退出游戏", self)
         act_quit.triggered.connect(self._quit)
+        menu.addAction(act_dungeon)
         menu.addAction(act_fight)
         menu.addSeparator()
         menu.addAction(act_attr)
@@ -482,12 +485,15 @@ class Pet(QWidget):
         menu.setFont(QFont("Microsoft YaHei", 9))
         act_fight = QAction("发起对战", self)
         act_fight.triggered.connect(self._open_arena)
+        act_dungeon = QAction("挑战副本", self)
+        act_dungeon.triggered.connect(self._open_dungeon_select)
         act_attr = QAction("蛐蛐属性", self)
         act_attr.triggered.connect(self._toggle_panel)
         act_cfg = QAction("蛐蛐设置", self)
         act_cfg.triggered.connect(self._toggle_settings)
         act_quit = QAction("退出游戏", self)
         act_quit.triggered.connect(self._quit)
+        menu.addAction(act_dungeon)
         menu.addAction(act_fight)
         menu.addSeparator()
         menu.addAction(act_attr)
@@ -504,6 +510,27 @@ class Pet(QWidget):
             self.arena_win.raise_()
             return
         self.arena_win = ArenaWindow(self)
+
+    def _open_dungeon_select(self) -> None:
+        """打开副本难度选择面板。"""
+        from arena import DungeonSelect
+        sel = getattr(self, "dungeon_sel", None)
+        if sel is not None and sel.isVisible():
+            sel.raise_()
+            return
+
+        def start(diff_id):
+            from arena import ArenaWindow
+            old = getattr(self, "arena_win", None)
+            if old is not None:
+                old.close()
+            if diff_id is None:
+                self.arena_win = ArenaWindow(self, resume=True)
+            else:
+                self.arena_win = ArenaWindow(self, diff_id=diff_id)
+
+        self.dungeon_sel = DungeonSelect(self, start)
+        self.dungeon_sel.show_near(self)
 
     def _toggle_panel(self) -> None:
         if self.panel.isVisible():
