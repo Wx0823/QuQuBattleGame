@@ -74,6 +74,8 @@ class Pet(QWidget):
         self.level = 1
         self.xp = 0
         self.total_xp = 0
+        self._stage = None          # 桌面副本战斗舞台（非空 = 副本进行中）
+        self._battle_pos = None     # 进入副本前的窗口位置
 
         # 数值表驱动：品种 + 等级 + 天赋 -> 最终属性
         self.db = StatsDB()
@@ -221,6 +223,37 @@ class Pet(QWidget):
             self.species_id = sid
             self.recompute()
 
+    # ---------- 桌面副本 ----------
+
+    def begin_desktop_battle(self, diff_id: str | None = None,
+                             resume: bool = False) -> None:
+        """副本直接在桌面上打：窗口临时扩为战场，蛐蛐原地迎战。"""
+        from stage import BattleStage, FIELD_W, FIELD_H, FIELD_R
+        old = getattr(self, "arena_win", None)
+        if old is not None:
+            old.close()
+        self._battle_pos = (self.x(), self.y())
+        self._stage = BattleStage(self, style="desktop", diff_id=diff_id,
+                                  resume=resume, cx=FIELD_W / 2,
+                                  cy=FIELD_H / 2 - 10, radius=FIELD_R)
+        scr = QApplication.primaryScreen().availableGeometry()
+        fx = max(scr.left(), min(int(self.x() + self.width() / 2 - FIELD_W / 2),
+                                 scr.right() - FIELD_W))
+        fy = max(scr.top(), min(int(self.y() + self.height() / 2 - FIELD_H / 2),
+                                scr.bottom() - FIELD_H))
+        self.setFixedSize(FIELD_W, FIELD_H)
+        self.move(fx, fy)
+        self.clearMask()          # 解除蛐蛐 mask，整个战场可绘
+        self.raise_()
+
+    def end_desktop_battle(self) -> None:
+        if self._stage is not None:
+            self._stage.on_exit()
+            self._stage = None
+        self.apply_zoom()         # 恢复蛐蛐尺寸与 mask
+        if self._battle_pos:
+            self.move(*self._battle_pos)
+
     # ---------- 存档 ----------
 
     def _load(self) -> None:
@@ -309,6 +342,18 @@ class Pet(QWidget):
 
     def _tick(self) -> None:
         dt = 0.016
+        # 桌面副本进行中：驱动战斗舞台，蛐蛐挂机绘制暂停
+        if self._stage is not None:
+            if self._dragging and self._offset is not None:
+                self.move(QCursor.pos() - self._offset)
+            self._stage.update(dt)
+            self.update()
+            self._save_t += dt
+            if self._save_t >= 10.0:
+                self._save_t = 0.0
+                self.save()
+            return
+
         self.cricket.update(dt)
 
         # 保险：拖动状态里左键已经物理松开（release 被弹窗吃掉等极端情况）
@@ -354,6 +399,13 @@ class Pet(QWidget):
     # ---------- 绘制 ----------
 
     def paintEvent(self, event) -> None:
+        # 桌面副本进行中：整个窗口让位给战斗舞台
+        if self._stage is not None:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            self._stage.draw(p)
+            p.end()
+            return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         # 整体下移 TOP_PAD，给顶部飘字留出渲染空间（mask 同步扩过）
@@ -474,6 +526,19 @@ class Pet(QWidget):
         super().mouseReleaseEvent(event)
 
     def _show_menu(self) -> None:
+        """右键菜单。副本进行中切换为副本菜单。"""
+        if self._stage is not None:
+            menu = QMenu()
+            menu.setFont(QFont("Microsoft YaHei", 9))
+            act_quit_d = QAction("撤出副本（进度保存）", self)
+            act_quit_d.triggered.connect(self.end_desktop_battle)
+            act_quit = QAction("退出游戏", self)
+            act_quit.triggered.connect(self._quit)
+            menu.addAction(act_quit_d)
+            menu.addSeparator()
+            menu.addAction(act_quit)
+            menu.exec(QCursor.pos())
+            return
         # 防重入：0.4 秒内只弹一次（连点右键不会疯狂闪菜单）
         now = time.monotonic()
         if now - self._menu_t < 0.4:
@@ -520,14 +585,13 @@ class Pet(QWidget):
             return
 
         def start(diff_id):
-            from arena import ArenaWindow
             old = getattr(self, "arena_win", None)
             if old is not None:
                 old.close()
             if diff_id is None:
-                self.arena_win = ArenaWindow(self, resume=True)
+                self.begin_desktop_battle(resume=True)
             else:
-                self.arena_win = ArenaWindow(self, diff_id=diff_id)
+                self.begin_desktop_battle(diff_id=diff_id)
 
         self.dungeon_sel = DungeonSelect(self, start)
         self.dungeon_sel.show_near(self)
@@ -561,6 +625,8 @@ class Pet(QWidget):
         QApplication.quit()
 
     def closeEvent(self, event) -> None:
+        if self._stage is not None:
+            self._stage.on_exit()   # 副本断点保存
         self.save()
         super().closeEvent(event)
 

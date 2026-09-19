@@ -209,9 +209,9 @@ def _arena_smoke() -> bool:
                 break
         pm = QPixmap(win.size())
         win.render(pm)
-        ok = not pm.isNull() and win.battle.over
-        print(f"    [smoke] 战斗结束={win.battle.over} "
-              f"胜者={win.battle.winner} 原因={win.battle.end_reason} "
+        ok = not pm.isNull() and win.stage.battle.over
+        print(f"    [smoke] 战斗结束={win.stage.battle.over} "
+              f"胜者={win.stage.battle.winner} 原因={win.stage.battle.end_reason} "
               f"XP={pet.xp_log}")
         win.close()
         return ok

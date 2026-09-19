@@ -8,5 +8,15 @@
     "d06",
     "d07",
     "d08"
-  ]
+  ],
+  "run": {
+    "diff_id": "d01",
+    "floor": 1,
+    "eidx": 0,
+    "seed": 307771579,
+    "kills": 7,
+    "total_xp": 189,
+    "player_hp": 190.0,
+    "player_sta": 77.0
+  }
 }
