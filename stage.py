@@ -51,13 +51,18 @@ class BattleStage:
         self.style = style                 # 'arena'（窗口+陶罐）| 'desktop'（桌面）
         self.cx, self.cy, self.radius = cx, cy, radius
         self.drun: DungeonRun | None = None
+        self._frac = [1.0, 1.0]
         if diff_id:
             self.drun = DungeonRun(self.db, diff_id)
         elif resume:
             loaded = DungeonRun.load_run(self.db)
             if loaded:
                 self.drun, hp, sta = loaded
-        self._frac = [1.0, 1.0]
+                # 断点里的血/耐写回结转比例（否则来回切换血量总变满血）
+                probe = self._make_player_fighter()
+                self._frac = [
+                    max(0.05, min(1.0, hp / max(1.0, probe.hp_max))),
+                    max(0.05, min(1.0, sta / max(1.0, probe.sta_max)))]
         self._rest_t = 0.0
         self._rest_msg = ""
         self._enter = None

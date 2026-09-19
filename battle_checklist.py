@@ -172,6 +172,8 @@ def main() -> int:
 
     # 11. 桌面舞台：战败后玩家必须复活重建（鞭尸 bug 回归测试）
     check("副本·战败后玩家复活重建", _stage_retry_smoke())
+    # 12. 桌面舞台：残血退出副本 → 续打 → 血量保留（不回满）
+    check("副本·切换模式血量保留", _resume_hp_smoke())
     times = [r["time"] / 60 for r in rows]
     check("副本·难度耗时递增", all(a <= b * 1.6 for a, b in zip(times, times[1:])),
           "->".join(f"{t:.0f}" for t in times))
@@ -328,6 +330,42 @@ def _stage_retry_smoke() -> bool:
             if st.dungeon_result is not None:
                 return False
         return False
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def _resume_hp_smoke() -> bool:
+    """残血退出副本（保存断点）→ 续打 → 血量必须按断点恢复，而不是满血。"""
+    try:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication(sys.argv)
+
+        class FP:
+            species_id = "c001"
+            level = 10
+            talents: list = []
+            palette = None
+
+            def _add_xp(self, n):
+                pass
+
+        from cricket import palette_from_hex
+        from stage import BattleStage
+        DungeonRun._write_save({})       # 清历史记录
+        pet = FP()
+        pet.palette = palette_from_hex("#6FA83C")
+        st = BattleStage(pet, style="desktop", diff_id="d01")
+        st._frac = [0.5, 0.6]            # 模拟残血状态
+        st.on_exit()                     # 保存断点
+        st2 = BattleStage(pet, style="desktop", resume=True)
+        ok = (abs(st2._frac[0] - 0.5) < 0.02
+              and abs(st2._frac[1] - 0.6) < 0.02
+              and st2.f[0][0].hp < st2.f[0][0].hp_max * 0.6)
+        DungeonRun.clear_run()
+        return ok
     except Exception:
         import traceback
         traceback.print_exc()
