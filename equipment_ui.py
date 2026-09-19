@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import (QBrush, QColor, QIcon, QPainter, QPainterPath,
+                           QPen, QPixmap)
 from PySide6.QtWidgets import (QGridLayout, QLabel, QPushButton, QScrollArea,
                                QVBoxLayout, QWidget)
 
@@ -18,17 +20,116 @@ from stats import StatsDB, fmt_num
 
 def _ui_color(color_hex: str) -> str:
     """暗色品质（如黑金）在深色面板上不可读 → 自动改用金色描边显示。"""
-    from PySide6.QtGui import QColor
     c = QColor(color_hex)
     lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
     return "#E8B23A" if lum < 90 else color_hex
+
+
+# ---------- 部位图标（QPainter 手绘，品质色渲染） ----------
+
+_ICON_CACHE: dict = {}
+
+
+def slot_icon_pixmap(slot_name: str, color_hex: str,
+                     equipped: bool = False, size: int = 40) -> QPixmap:
+    """按部位画一枚装备图标。equipped=True 时右上角带金色角标。"""
+    key = (slot_name, color_hex, equipped, size)
+    pix = _ICON_CACHE.get(key)
+    if pix is not None:
+        return pix
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    c = QColor(color_hex)
+    s = size / 40.0
+
+    def pt(x, y):
+        return QPointF(x * s, y * s)
+
+    pen = QPen(c, 3.0 * s)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+
+    name = slot_name or ""
+    if name.startswith("触须"):
+        for sgn in (1, -1):
+            path = QPainterPath()
+            path.moveTo(pt(20, 33))
+            path.quadTo(pt(20 + 12 * sgn, 22), pt(20 + 15 * sgn, 8))
+            p.drawPath(path)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(c))
+            p.drawEllipse(pt(20 + 15 * sgn, 8), 2.2 * s, 2.2 * s)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+    elif name.startswith("牙齿"):
+        p.setBrush(QBrush(c))
+        p.setPen(Qt.PenStyle.NoPen)
+        for x0 in (10, 21):
+            fang = QPainterPath()
+            fang.moveTo(pt(x0, 8))
+            fang.quadTo(pt(x0 + 5, 20), pt(x0 + 4, 32))
+            fang.quadTo(pt(x0 + 1, 22), pt(x0 - 2, 11))
+            fang.closeSubpath()
+            p.drawPath(fang)
+    elif name.startswith("前躯"):
+        p.setBrush(QBrush(QColor(c.red(), c.green(), c.blue(), 70)))
+        p.drawRoundedRect(QRectF(pt(9, 8), pt(22, 25)), 5 * s, 5 * s)
+        p.drawLine(pt(9, 20), pt(31, 20))
+    elif name.startswith("后躯"):
+        path = QPainterPath()
+        path.moveTo(pt(12, 7))
+        path.quadTo(pt(26, 14), pt(24, 24))
+        p.drawPath(path)
+        pen2 = QPen(c, 2.0 * s)
+        pen2.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen2)
+        p.drawLine(pt(24, 24), pt(14, 33))
+        p.drawLine(pt(24, 24), pt(30, 30))
+    elif name.startswith("翅膀"):
+        wing = QPainterPath()
+        wing.moveTo(pt(20, 5))
+        wing.quadTo(pt(34, 13), pt(31, 29))
+        wing.quadTo(pt(18, 33), pt(10, 25))
+        wing.quadTo(pt(11, 11), pt(20, 5))
+        p.setBrush(QBrush(QColor(c.red(), c.green(), c.blue(), 80)))
+        p.drawPath(wing)
+        p.drawLine(pt(20, 6), pt(17, 30))
+        p.drawLine(pt(20, 6), pt(26, 28))
+    elif name.startswith("尾巴"):
+        path = QPainterPath()
+        path.moveTo(pt(10, 32))
+        path.quadTo(pt(16, 10), pt(32, 8))
+        p.drawPath(path)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(c))
+        p.drawEllipse(QRectF(pt(30, 4), pt(6, 6)))
+    else:
+        # 未知部位的兜底：圆盾 + 部位首字
+        p.setBrush(QBrush(QColor(c.red(), c.green(), c.blue(), 70)))
+        p.drawEllipse(QRectF(pt(7, 7), pt(26, 26)))
+        p.setPen(QPen(c, 2))
+        p.drawText(QRectF(pt(0, 0), pt(40, 40)),
+                   Qt.AlignmentFlag.AlignCenter, name[:1])
+
+    if equipped:
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#F2C14E")))
+        p.drawPolygon([pt(40, 0), pt(40, 10 * s), pt(40 - 10 * s, 0)])
+
+    p.end()
+    _ICON_CACHE[key] = pix
+    return pix
 
 
 class EquipmentPanel(CardPanel):
     """属性 + 装备槽 + 格子背包。"""
 
     W, H = 430, 620
-    GRID_COLS = 7
+    GRID_COLS = 6
 
     def __init__(self, pet):
         CardPanel.__init__(self, "蛐蛐属性 · 装备", self.W, self.H)
@@ -181,55 +282,67 @@ class EquipmentPanel(CardPanel):
         self._inv_snapshot = self._inventory_snapshot()
 
     def _refresh_inventory_grid(self, equipped_items: dict) -> None:
-        """统一格子背包：全部装备一起显示，品质色描边 + 部位字。
-        格子池复用（不重建），刷新只是改文本/颜色/显隐。"""
+        """统一格子背包：固定 6 列网格（不足补深色空槽），装备格显示部位图标。"""
         items = sorted(equipment.get_items().values(),
                        key=lambda x: -int(x.get("uid", 0)))
         if self.sel_uid and not any(it["uid"] == self.sel_uid for it in items):
             self.sel_uid = None
         equipped_uids = set(equipment.get_equipped().values())
 
-        # 格子池扩容
-        while len(self._cells) < len(items):
+        total_slots = max(36, -(-len(items) // self.GRID_COLS) * self.GRID_COLS)
+
+        # 格子池扩容（只建一次，之后复用）
+        while len(self._cells) < total_slots:
             cell = QPushButton()
-            cell.setFixedSize(46, 46)
+            cell.setFixedSize(48, 48)
             cell.setCheckable(True)
             cell.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.inv_grid.addWidget(cell,
-                                    len(self._cells) // self.GRID_COLS,
-                                    len(self._cells) % self.GRID_COLS)
+            idx = len(self._cells)
+            self.inv_grid.addWidget(cell, idx // self.GRID_COLS,
+                                    idx % self.GRID_COLS)
             cell.clicked.connect(
-                lambda _=False: self._on_item(getattr(cell, "_uid", None)))
+                lambda _=False, c=cell: self._on_item(getattr(c, "_uid", None)))
             self._cells.append(cell)
 
+        EMPTY_CSS = ("QPushButton{background:#1B2129;"
+                     "border:1px solid rgba(255,255,255,26); border-radius:7px;}"
+                     "QPushButton:hover{background:#232A34;}")
+
         for k, cell in enumerate(self._cells):
+            if k >= total_slots:
+                cell.setVisible(False)
+                continue
+            cell.setVisible(True)
             if k < len(items):
                 it = items[k]
-                cell._uid = it["uid"]
+                uid = it["uid"]
+                cell._uid = uid
+                is_eq = uid in equipped_uids
                 color = _ui_color(equipment.quality_color(self.db, it))
-                is_eq = it["uid"] in equipped_uids
-                conf = self.db.data.get("装备部位", {}).get(it["slot"], {})
-                glyph = conf.get("名称", "?")[:1]
+                slot_conf = self.db.data.get("装备部位", {}).get(it["slot"], {})
+                pix = slot_icon_pixmap(slot_conf.get("名称", it["slot"]),
+                                       color, is_eq, 40)
+                cell.setIcon(QIcon(pix))
+                cell.setIconSize(QSize(36, 36))
                 dark = color == "#E8B23A" and it["quality"] == "q07"
-                bg = "#1A1A20" if dark else "#2A3040"
-                border = f"2px solid {color}" if is_eq else f"1px solid {color}"
-                cell.setText(glyph)
-                cell.setToolTip(
-                    f"<b>{it.get('名称', '')}</b>"
-                    + ("（装备中）" if is_eq else "")
-                    + "<br>"
-                    + "<br>".join(t for t, _u in
-                                  equipment.item_affix_text(self.db, it)))
+                bg = "#15161C" if dark else "#2A3040"
+                border = f"2px solid {color}" if is_eq else f"1px solid {color}60"
                 cell.setStyleSheet(
-                    f"QPushButton{{color:{color}; font-size:17px;"
-                    f"font-weight:600; background:{bg};"
+                    f"QPushButton{{background:{bg};"
                     f"border:{border}; border-radius:7px;}}"
-                    f"QPushButton:hover{{background:rgba(143,209,79,0.30);}}"
-                    f"QPushButton:checked{{background:rgba(143,209,79,0.40);}}")
-                cell.setVisible(True)
+                    f"QPushButton:hover{{background:#333B4A;}}"
+                    f"QPushButton:checked{{background:#3A4A33;}}")
+                aff = equipment.item_affix_text(self.db, it)
+                cell.setToolTip(
+                    f"<b><font color='{color}'>{it.get('名称', '')}</font></b>"
+                    + ("（装备中）" if is_eq else "")
+                    + "<br>" + "<br>".join(t for t, _u in aff))
             else:
-                cell.setVisible(False)
-                cell.setChecked(False)
+                cell._uid = None
+                cell.setIcon(QIcon())
+                cell.setToolTip("")
+                cell.setStyleSheet(EMPTY_CSS)
+            cell.setChecked(self.sel_uid == cell._uid)
 
     def _refresh_detail(self) -> None:
         it = equipment.get_items().get(self.sel_uid) if self.sel_uid else None
