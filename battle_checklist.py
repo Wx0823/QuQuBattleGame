@@ -317,16 +317,22 @@ def _stage_retry_smoke() -> bool:
         pet.palette = palette_from_hex("#6FA83C")
         st = BattleStage(pet, style="desktop", diff_id="d01")
         phase = 0
+        seen_loss = False
         for _k in range(6000):
             st.update(0.03)
             if phase == 0 and st.battle is not None:
                 st.f[1][0].hp = 10 ** 9      # 打不死的敌人 → 必败
                 phase = 1
-            if phase == 1 and any("战败" in line for line in st.log):
-                # 战败已结算：等新敌人入场、新战斗开始
-                if (st.battle is not None and st.f[0][0].hp > 1.0
-                        and st.fx["ko"] is None):
+            if (phase == 1 and st.battle is not None and st.battle.over
+                    and st.battle.winner != 0):
+                seen_loss = True             # 败局已结算
+                phase = 2
+            if (phase == 2 and st.battle is not None and not st.battle.over
+                    and seen_loss):
+                # 新一场已开打：玩家必须满血复活且无尸体残留
+                if st.f[0][0].hp > 1.0 and st.fx["ko"] is None:
                     return True
+                return False
             if st.dungeon_result is not None:
                 return False
         return False

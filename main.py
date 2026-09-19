@@ -309,6 +309,41 @@ class Pet(QWidget):
 
     # ---------- 桌面副本 ----------
 
+    def _on_desktop_diff_clear(self, res: dict) -> None:
+        """桌面副本通关：庆祝演出 → 自动撤回挂机模式。"""
+        from PySide6.QtCore import QTimer
+        stage = self._stage
+        if stage is None:
+            return
+        first = res.get("first_clear", False)
+
+        # 新解锁提示
+        order = self.db.data.get("_副本难度顺序", [])
+        did = stage.drun.diff_id
+        idx = order.index(did) if did in order else -1
+        unlock_txt = ""
+        if 0 <= idx + 1 < len(order):
+            nxt = order[idx + 1]
+            nxt_name = self.db.data["副本难度"][nxt].get("名称", "")
+            unlock_txt = nxt_name
+            self._float_unlock = nxt_name
+
+        stage._float("副本通关！", 0, "#FAC775", -80)
+        stage._float("首通！" if first else "通关", 0, "#FAC775", -56)
+        if unlock_txt:
+            stage._float(f"已解锁「{unlock_txt}」", 0, "#97C459", -34)
+        stage._log(f"「{stage.drun.diff_name()}」副本通关！"
+                   + ("（首通）" if first else ""))
+        # 庆祝 4.5 秒后自动撤回挂机模式
+        QTimer.singleShot(4500, self._delayed_exit_battle)
+
+    def _delayed_exit_battle(self) -> None:
+        if self._stage is not None and self._stage.dungeon_result is not None:
+            self.end_desktop_battle()
+        elif self._stage is not None and self._stage.drun is not None:
+            # 兜底：无论断点状态，通关演出结束后一律撤回挂机
+            self.end_desktop_battle()
+
     def begin_desktop_battle(self, diff_id: str | None = None,
                              resume: bool = False) -> None:
         """副本直接在桌面上打：窗口临时扩为战场，蛐蛐原地迎战。"""
@@ -320,6 +355,7 @@ class Pet(QWidget):
         self._stage = BattleStage(self, style="desktop", diff_id=diff_id,
                                   resume=resume, cx=FIELD_W / 2,
                                   cy=FIELD_H / 2 - 10, radius=FIELD_R)
+        self._stage.on_diff_clear = self._on_desktop_diff_clear
         scr = QApplication.primaryScreen().availableGeometry()
         fx = max(scr.left(), min(int(self.x() + self.width() / 2 - FIELD_W / 2),
                                  scr.right() - FIELD_W))
