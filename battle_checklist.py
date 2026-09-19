@@ -169,6 +169,9 @@ def main() -> int:
           d09r["max_floor"] >= 19, f"最远第 {d09r['max_floor']} 层")
     check("副本·真神为终极天花板（入场即硬墙，不崩即可）",
           d10r["max_floor"] >= 2, f"最远第 {d10r['max_floor']} 层")
+
+    # 11. 桌面舞台：战败后玩家必须复活重建（鞭尸 bug 回归测试）
+    check("副本·战败后玩家复活重建", _stage_retry_smoke())
     times = [r["time"] / 60 for r in rows]
     check("副本·难度耗时递增", all(a <= b * 1.6 for a, b in zip(times, times[1:])),
           "->".join(f"{t:.0f}" for t in times))
@@ -287,6 +290,48 @@ def sim_dungeon(diff_id: str, seed: int = 1) -> dict:
     lv = _level_from_xp(xp_base + xp_total)
     return {"time": t, "retries": retries, "lv": lv,
             "done": False, "max_floor": max_floor}
+
+
+def _stage_retry_smoke() -> bool:
+    """桌面舞台副本：把敌人血量改到打不死逼出一场败局，
+    验证战败后玩家 Fighter 被复活重建、尸体状态被清理。"""
+    try:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication(sys.argv)
+
+        class FP:
+            species_id = "c001"
+            level = 1
+            talents: list = []
+            palette = None
+
+            def _add_xp(self, n):
+                pass
+
+        from cricket import palette_from_hex
+        from stage import BattleStage
+        pet = FP()
+        pet.palette = palette_from_hex("#6FA83C")
+        st = BattleStage(pet, style="desktop", diff_id="d01")
+        phase = 0
+        for _k in range(6000):
+            st.update(0.03)
+            if phase == 0 and st.battle is not None:
+                st.f[1][0].hp = 10 ** 9      # 打不死的敌人 → 必败
+                phase = 1
+            if phase == 1 and any("战败" in line for line in st.log):
+                # 战败已结算：等新敌人入场、新战斗开始
+                if (st.battle is not None and st.f[0][0].hp > 1.0
+                        and st.fx["ko"] is None):
+                    return True
+            if st.dungeon_result is not None:
+                return False
+        return False
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 def check_dungeon_curve() -> list[dict]:

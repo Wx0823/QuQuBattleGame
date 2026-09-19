@@ -181,6 +181,27 @@ class BattleStage:
         self._enter = {"side": 1, "t": 0.0, "dur": 1.0}
 
     def _begin_battle(self) -> None:
+        if self.drun is not None:
+            # 玩家复活/重建：按结转比例满状态进场。
+            # 之前只重置血量比例和敌人，玩家本体还是上一场 hp=0 的尸体，
+            # 新战斗开局即败，永远躺地上被鞭尸。
+            player = self._make_player_fighter()
+            player.hp = max(1.0, player.hp_max * self._frac[0])
+            player.sta = max(1.0, player.sta_max * self._frac[1])
+            pc = Cricket()
+            pc.act_next = 9999
+            self.f[0] = (player, pc, self.pet.palette)
+            self.ch[0]["x"], self.ch[0]["y"] = self._start[0]
+            self.ch[0]["hd"] = self.ch[0]["thd"] = 0.0
+            self._prev_pos[0] = self._start[0]
+            # 清掉上一场的尸体/逃跑/角力/护罩残留
+            self.fx["ko"] = None
+            self.fx["ko_anim"] = None
+            self.fx["flee"] = None
+            self.fx["grapple"] = None
+            self.fx["guard"] = [0.0, 0.0]
+            self.fx["flash"] = [0.0, 0.0]
+            self._last_hit = None
         self.battle = Battle(self.db, self.f[0][0], self.f[1][0],
                              seed=self.seed)
         self.acc = 0.0
