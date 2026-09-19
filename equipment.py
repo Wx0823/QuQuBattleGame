@@ -161,7 +161,10 @@ def fmt_val(v: float) -> str:
 
 # ---------- 背包 / 穿戴 ----------
 
-def add_item(db, item: dict) -> str:
+def add_item(db, item: dict) -> str | None:
+    """入库。空掉落（未掷中）直接忽略，返回 None。"""
+    if not item or "slot" not in item:
+        return None
     data = _read_inv()
     uid = str(data.get("next_uid", 1))
     data["next_uid"] = int(uid) + 1
