@@ -14,6 +14,9 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
                                QWidget)
 
+from battle import make_fighter
+from cricket import Cricket, paint_cricket_top, palette_from_hex
+from dungeon import DungeonRun
 from panel import CardPanel
 from stage import BattleStage, WIN_ARENA_W, WIN_ARENA_H, e_reason
 from stats import StatsDB, fmt_num
