@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (QGridLayout, QLabel, QPushButton, QScrollArea,
+                               QVBoxLayout, QWidget)
 
 import equipment
 from panel import CardPanel
@@ -33,8 +35,6 @@ class EquipmentPanel(CardPanel):
         self.sel_slot = (self.db.data.get("_装备部位顺序") or ["p01"])[0]
         self.sel_uid = None
 
-        from PySide6.QtWidgets import (QGridLayout, QLabel, QPushButton,
-                                       QScrollArea, QVBoxLayout)
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 12, 16, 14)
         root.setSpacing(6)
@@ -171,7 +171,7 @@ class EquipmentPanel(CardPanel):
                 w.deleteLater()
         items = [it for it in equipment.get_items().values()
                  if it["slot"] == self.sel_slot]
-        items.sort(key=lambda x: -x["uid"])
+        items.sort(key=lambda x: -int(x.get("uid", 0)))
         if self.sel_uid and not any(it["uid"] == self.sel_uid for it in items):
             self.sel_uid = None
         if not items:
