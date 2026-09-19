@@ -1,4 +1,14 @@
 {
+  "run": {
+    "diff_id": "d01",
+    "floor": 1,
+    "eidx": 0,
+    "seed": 394481358,
+    "kills": 0,
+    "total_xp": 7,
+    "player_hp": 100.0,
+    "player_sta": 50.0
+  },
   "cleared": [
     "d01",
     "d02",
@@ -8,15 +18,5 @@
     "d06",
     "d07",
     "d08"
-  ],
-  "run": {
-    "diff_id": "d01",
-    "floor": 1,
-    "eidx": 0,
-    "seed": 411314433,
-    "kills": 0,
-    "total_xp": 7,
-    "player_hp": 100.0,
-    "player_sta": 50.0
-  }
+  ]
 }

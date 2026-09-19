@@ -130,8 +130,8 @@ class Pet(QWidget):
         self.btn_dungeon.setStyleSheet(self.BTN_CSS.format())
         self.btn_dungeon.setFixedSize(40, 18)
         self.btn_dungeon.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_dungeon.setToolTip("挑战副本")
-        self.btn_dungeon.clicked.connect(self._open_dungeon_select)
+        self.btn_dungeon.setToolTip("直进当前可挑战的副本（右键菜单可选难度）")
+        self.btn_dungeon.clicked.connect(self._quick_enter_dungeon)
 
         self.btn_desktop = QPushButton("桌面", self)
         self.btn_desktop.setStyleSheet(
@@ -626,6 +626,23 @@ class Pet(QWidget):
             self.arena_win.raise_()
             return
         self.arena_win = ArenaWindow(self)
+
+    def _quick_enter_dungeon(self) -> None:
+        """副本按钮直进：断点优先，否则打已解锁的最前沿难度。"""
+        from dungeon import DungeonRun
+        if DungeonRun.load_run(self.db) is not None:
+            self.begin_desktop_battle(resume=True)
+            return
+        cleared = DungeonRun.load_cleared()
+        order = self.db.data.get("_副本难度顺序", [])
+        target = order[-1] if order else "d01"
+        for did in order:
+            conf = self.db.data["副本难度"].get(did, {})
+            pre = str(conf.get("解锁前置", "") or "")
+            if (not pre or pre in cleared) and did not in cleared:
+                target = did
+                break
+        self.begin_desktop_battle(diff_id=target)
 
     def _open_dungeon_select(self) -> None:
         """打开副本难度选择面板。"""
