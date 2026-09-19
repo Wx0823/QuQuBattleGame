@@ -13,6 +13,14 @@ from panel import CardPanel
 from stats import StatsDB, fmt_num
 
 
+def _ui_color(color_hex: str) -> str:
+    """暗色品质（如黑金）在深色面板上不可读 → 自动改用金色描边显示。"""
+    from PySide6.QtGui import QColor
+    c = QColor(color_hex)
+    lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
+    return "#E8B23A" if lum < 90 else color_hex
+
+
 class EquipmentPanel(CardPanel):
     """属性 + 装备槽 + 背包。"""
 
@@ -129,11 +137,13 @@ class EquipmentPanel(CardPanel):
             slot_name = conf.get("名称", sid)
             it = equipped.get(sid)
             if it:
-                color = equipment.quality_color(self.db, it)
+                color = _ui_color(equipment.quality_color(self.db, it))
+                dark = color == "#E8B23A" and it["quality"] == "q07"
+                bg = "rgba(20,20,26,0.85)" if dark else "rgba(255,255,255,0.06)"
                 btn.setText(f"{slot_name}｜{it.get('名称', '')}")
                 btn.setStyleSheet(
                     f"QPushButton{{text-align:left; padding:5px 8px; font-size:11px;"
-                    f"color:{color}; background:rgba(255,255,255,0.06);"
+                    f"color:{color}; background:{bg};"
                     f"border:1px solid {color}; border-radius:6px;}}"
                     f"QPushButton:hover{{background:rgba(143,209,79,0.22);}}"
                     f"QPushButton:checked{{border-color:rgba(143,209,79,220);}}")
@@ -170,7 +180,7 @@ class EquipmentPanel(CardPanel):
             self.inv_layout.insertWidget(0, empty)
             return
         for it in items:
-            color = equipment.quality_color(self.db, it)
+            color = _ui_color(equipment.quality_color(self.db, it))
             equipped = equipment.get_equipped().get(self.sel_slot) == it["uid"]
             mark = "〔装备中〕" if equipped else ""
             txt = f"{mark}{it.get('名称', '')}"
@@ -191,7 +201,7 @@ class EquipmentPanel(CardPanel):
             self.btn_action.setEnabled(False)
             self.btn_action.setText("装备")
             return
-        color = equipment.quality_color(self.db, it)
+        color = _ui_color(equipment.quality_color(self.db, it))
         aff = equipment.item_affix_text(self.db, it)
         lines = []
         for txt, up in aff:
