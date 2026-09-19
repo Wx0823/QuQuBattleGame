@@ -33,6 +33,7 @@ from pynput.keyboard import Key
 from cricket import Cricket, paint_cricket, palette_from_hex
 from panel import StatsPanel
 from settings import Settings, SettingsPanel
+from stage import FIELD_W as FIELD_W_UI
 from stats import StatsDB
 
 # 基准尺寸，实际显示尺寸 = 基准 × 缩放（设置面板可调）
@@ -101,6 +102,7 @@ class Pet(QWidget):
 
         self._load()
         self.recompute()  # 读档后按存档的品种/等级重算
+        self._make_mode_buttons()
         self._init_window()
         # 必须在钩子启动前建好，否则首次按键可能访问到尚未创建的面板
         self.panel = StatsPanel(self)
@@ -112,6 +114,49 @@ class Pet(QWidget):
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
         self.timer.start()
+
+    # ---------- 模式切换按钮 ----------
+
+    BTN_CSS = ("QPushButton{{color:#E8EDF2; background:rgba(0,0,0,120);"
+               "border:1px solid rgba(255,255,255,70); border-radius:8px;"
+               "font-size:11px;}}"
+               "QPushButton:hover{{background:rgba(143,209,79,150);"
+               "border-color:rgba(143,209,79,200);}}")
+
+    def _make_mode_buttons(self) -> None:
+        """挂机模式的「副本」按钮 + 副本战场的「桌面」按钮。"""
+        from PySide6.QtWidgets import QPushButton
+        self.btn_dungeon = QPushButton("副本", self)
+        self.btn_dungeon.setStyleSheet(self.BTN_CSS.format())
+        self.btn_dungeon.setFixedSize(40, 18)
+        self.btn_dungeon.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_dungeon.setToolTip("挑战副本")
+        self.btn_dungeon.clicked.connect(self._open_dungeon_select)
+
+        self.btn_desktop = QPushButton("桌面", self)
+        self.btn_desktop.setStyleSheet(
+            "QPushButton{color:#1E2430; background:rgba(250,199,117,220);"
+            "border:none; border-radius:8px; font-size:11px;}"
+            "QPushButton:hover{background:rgba(250,199,117,255);}")
+        self.btn_desktop.setFixedSize(40, 18)
+        self.btn_desktop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_desktop.setToolTip("退回挂机模式（进度保存）")
+        self.btn_desktop.clicked.connect(self.end_desktop_battle)
+        self.btn_desktop.hide()
+
+        self.btn_dungeon.hide()   # _init_window 会 show，先藏再由 place 决定
+
+    def _place_mode_buttons(self) -> None:
+        if self._stage is not None:
+            # 副本战场：右上角「桌面」按钮（战场窗口无缩放）
+            self.btn_dungeon.hide()
+            self.btn_desktop.move(FIELD_W_UI - 52, 10)
+            self.btn_desktop.show()
+        else:
+            # 挂机模式：蛐蛐窗口右上角「副本」按钮（随缩放走）
+            self.btn_desktop.hide()
+            self.btn_dungeon.move(int((WIN_W - 46) * self.zoom), int(8 * self.zoom))
+            self.btn_dungeon.show()
 
     # ---------- 初始化 ----------
 
@@ -154,6 +199,9 @@ class Pet(QWidget):
             region = region.united(
                 QRegion(int(24 * f), int((162 + TOP_PAD) * f),
                         int(142 * f), int(46 * f)))
+        # 「副本」按钮也要在 mask 内，否则不渲染不可点
+        if getattr(self, "btn_dungeon", None) is not None:
+            region = region.united(QRegion(self.btn_dungeon.geometry()))
         self.setMask(region)
 
     def apply_zoom(self) -> None:
@@ -161,6 +209,7 @@ class Pet(QWidget):
         f = self.zoom
         self.setFixedSize(max(60, int(WIN_W * f)), max(60, int(WIN_H * f)))
         self._update_mask()
+        self._place_mode_buttons()
         self._clamp_into_screen()
         self.update()
 
@@ -244,6 +293,7 @@ class Pet(QWidget):
         self.setFixedSize(FIELD_W, FIELD_H)
         self.move(fx, fy)
         self.clearMask()          # 解除蛐蛐 mask，整个战场可绘
+        self._place_mode_buttons()   # 藏「副本」、亮「桌面」
         self.raise_()
 
     def end_desktop_battle(self) -> None:
@@ -253,6 +303,7 @@ class Pet(QWidget):
         self.apply_zoom()         # 恢复蛐蛐尺寸与 mask
         if self._battle_pos:
             self.move(*self._battle_pos)
+        self._place_mode_buttons()   # 藏「桌面」、亮「副本」
 
     # ---------- 存档 ----------
 
