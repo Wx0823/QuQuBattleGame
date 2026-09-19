@@ -256,7 +256,7 @@ def sim_dungeon(diff_id: str, seed: int = 1) -> dict:
     frac_hp = frac_sta = 1.0
     max_floor = 1
     guard = 0
-    while guard < 15000:
+    while guard < 6000:
         guard += 1
         lv = _level_from_xp(xp_base + xp_total)
         stats, _ = db.compute("c001", lv)

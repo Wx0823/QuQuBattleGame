@@ -19,6 +19,7 @@ from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from battle import Battle, make_fighter
 from cricket import Cricket, paint_cricket_top, palette_from_hex
 from dungeon import DungeonRun
+import equipment
 from stats import StatsDB, fmt_num
 
 # 桌面模式的战场几何
@@ -83,8 +84,10 @@ class BattleStage:
         if side == 0:
             sp = self.db.species(self.pet.species_id) or {}
             name = f"{sp.get('名称', '蛐蛐')}·我方"
+            extra = equipment.bonus_stats()   # 已穿戴装备词条
             f = make_fighter(self.db, 0, name, self.pet.species_id,
-                             self.pet.level, self.pet.talents)
+                             self.pet.level, self.pet.talents,
+                             extra_stats=extra)
             pal = self.pet.palette
         else:
             sid = random.choice(self.db.species_ids())
@@ -98,9 +101,10 @@ class BattleStage:
 
     def _make_player_fighter(self):
         sp = self.db.species(self.pet.species_id) or {}
+        extra = equipment.bonus_stats()   # 已穿戴装备词条
         return make_fighter(self.db, 0, f"{sp.get('名称', '蛐蛐')}·我方",
                             self.pet.species_id, self.pet.level,
-                            self.pet.talents)
+                            self.pet.talents, extra_stats=extra)
 
     def _reset_field(self, intro: float = 1.6) -> None:
         cx, cy = self.cx, self.cy
@@ -246,6 +250,16 @@ class BattleStage:
             if self.on_diff_clear:
                 self.on_diff_clear(res)
             return
+        # 击败怪物 → 概率掉落装备（难度越高品质越好）
+        if win:
+            drop = equipment.make_item(self.db, random.Random(), self.drun.diff_id)
+            if drop:
+                equipment.add_item(self.db, drop)
+                drop_name = equipment.item_name(self.db, drop)
+                qcolor = equipment.quality_color(self.db, drop)
+                self._float(f"掉落 {drop_name}!", 0, qcolor, -52)
+                self._log(f"击败 {self.f[1][0].name}，"
+                          f"掉落「{drop_name}」！已放入背包")
         probe = self._make_player_fighter()
         self.drun.save(self._frac[0] * probe.hp_max,
                        self._frac[1] * probe.sta_max)

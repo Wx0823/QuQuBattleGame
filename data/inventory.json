@@ -1,0 +1,45 @@
+{
+  "items": {
+    "1": {
+      "slot": "p01",
+      "quality": "q01",
+      "affixes": [
+        {
+          "id": "e04",
+          "val": 6.3,
+          "up": false
+        }
+      ],
+      "uid": "1",
+      "名称": "白色·触须"
+    },
+    "2": {
+      "slot": "p05",
+      "quality": "q02",
+      "affixes": [
+        {
+          "id": "e13",
+          "val": 12.8,
+          "up": false
+        }
+      ],
+      "uid": "2",
+      "名称": "夫勇·翅膀"
+    },
+    "3": {
+      "slot": "p02",
+      "quality": "q01",
+      "affixes": [
+        {
+          "id": "e03",
+          "val": 7.2,
+          "up": false
+        }
+      ],
+      "uid": "3",
+      "名称": "白色·牙齿"
+    }
+  },
+  "equipped": {},
+  "next_uid": 4
+}

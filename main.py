@@ -117,46 +117,79 @@ class Pet(QWidget):
 
     # ---------- 模式切换按钮 ----------
 
-    BTN_CSS = ("QPushButton{{color:#E8EDF2; background:rgba(0,0,0,120);"
-               "border:1px solid rgba(255,255,255,70); border-radius:8px;"
-               "font-size:11px;}}"
-               "QPushButton:hover{{background:rgba(143,209,79,150);"
-               "border-color:rgba(143,209,79,200);}}")
-
     def _make_mode_buttons(self) -> None:
-        """挂机模式的「副本」按钮 + 副本战场的「桌面」按钮。"""
+        """挂机：「属性」「副本」；副本战场：「装备」「桌面」。"""
         from PySide6.QtWidgets import QPushButton
+        css = ("QPushButton{color:#E8EDF2; background:rgba(0,0,0,120);"
+               "border:1px solid rgba(255,255,255,70); border-radius:8px;"
+               "font-size:11px;}"
+               "QPushButton:hover{background:rgba(143,209,79,150);"
+               "border-color:rgba(143,209,79,200);}")
+        css_gold = ("QPushButton{color:#1E2430; background:rgba(250,199,117,220);"
+                    "border:none; border-radius:8px; font-size:11px;}"
+                    "QPushButton:hover{background:rgba(250,199,117,255);}")
+
+        self.btn_attr = QPushButton("属性", self)
+        self.btn_attr.setStyleSheet(css)
+        self.btn_attr.setFixedSize(40, 18)
+        self.btn_attr.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_attr.setToolTip("蛐蛐属性 · 装备")
+        self.btn_attr.clicked.connect(self._toggle_equipment_panel)
+
         self.btn_dungeon = QPushButton("副本", self)
-        self.btn_dungeon.setStyleSheet(self.BTN_CSS.format())
+        self.btn_dungeon.setStyleSheet(css)
         self.btn_dungeon.setFixedSize(40, 18)
         self.btn_dungeon.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_dungeon.setToolTip("直进当前可挑战的副本（右键菜单可选难度）")
         self.btn_dungeon.clicked.connect(self._quick_enter_dungeon)
 
+        self.btn_equip_b = QPushButton("装备", self)
+        self.btn_equip_b.setStyleSheet(css)
+        self.btn_equip_b.setFixedSize(40, 18)
+        self.btn_equip_b.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_equip_b.setToolTip("战斗中可更换装备，本场结束后生效")
+        self.btn_equip_b.clicked.connect(self._toggle_equipment_panel)
+
         self.btn_desktop = QPushButton("桌面", self)
-        self.btn_desktop.setStyleSheet(
-            "QPushButton{color:#1E2430; background:rgba(250,199,117,220);"
-            "border:none; border-radius:8px; font-size:11px;}"
-            "QPushButton:hover{background:rgba(250,199,117,255);}")
+        self.btn_desktop.setStyleSheet(css_gold)
         self.btn_desktop.setFixedSize(40, 18)
         self.btn_desktop.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_desktop.setToolTip("退回挂机模式（进度保存）")
         self.btn_desktop.clicked.connect(self.end_desktop_battle)
-        self.btn_desktop.hide()
 
-        self.btn_dungeon.hide()   # _init_window 会 show，先藏再由 place 决定
+        for b in (self.btn_attr, self.btn_dungeon,
+                  self.btn_equip_b, self.btn_desktop):
+            b.hide()
 
     def _place_mode_buttons(self) -> None:
         if self._stage is not None:
-            # 副本战场：右上角「桌面」按钮（战场窗口无缩放）
+            # 副本战场：「装备」「桌面」
+            self.btn_attr.hide()
             self.btn_dungeon.hide()
+            self.btn_equip_b.move(FIELD_W_UI - 98, 10)
+            self.btn_equip_b.show()
             self.btn_desktop.move(FIELD_W_UI - 52, 10)
             self.btn_desktop.show()
         else:
-            # 挂机模式：蛐蛐窗口右上角「副本」按钮（随缩放走）
+            # 挂机模式：「属性」「副本」（随缩放走）
+            self.btn_equip_b.hide()
             self.btn_desktop.hide()
+            self.btn_attr.move(int((WIN_W - 92) * self.zoom), int(8 * self.zoom))
+            self.btn_attr.show()
             self.btn_dungeon.move(int((WIN_W - 46) * self.zoom), int(8 * self.zoom))
             self.btn_dungeon.show()
+
+    def _toggle_equipment_panel(self) -> None:
+        from equipment_ui import EquipmentPanel
+        panel = getattr(self, "equip_panel", None)
+        if panel is not None and panel.isVisible():
+            panel.hide()
+            return
+        if panel is None:
+            panel = EquipmentPanel(self)
+            self.equip_panel = panel
+        panel.refresh()
+        panel.show_near(self)
 
     # ---------- 初始化 ----------
 
@@ -199,9 +232,11 @@ class Pet(QWidget):
             region = region.united(
                 QRegion(int(24 * f), int((162 + TOP_PAD) * f),
                         int(142 * f), int(46 * f)))
-        # 「副本」按钮也要在 mask 内，否则不渲染不可点
-        if getattr(self, "btn_dungeon", None) is not None:
-            region = region.united(QRegion(self.btn_dungeon.geometry()))
+        # 模式按钮也要在 mask 内，否则不渲染不可点
+        for name in ("btn_attr", "btn_dungeon"):
+            b = getattr(self, name, None)
+            if b is not None:
+                region = region.united(QRegion(b.geometry()))
         self.setMask(region)
 
     def apply_zoom(self) -> None:

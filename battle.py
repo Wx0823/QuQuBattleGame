@@ -344,7 +344,10 @@ class Battle:
 
 
 def make_fighter(db, side: int, name: str, species_id: str, level: int,
-                 talents=None) -> Fighter:
-    """从数值表构建一只战斗用蛐蛐。"""
+                 talents=None, extra_stats: dict | None = None) -> Fighter:
+    """从数值表构建一只战斗用蛐蛐。extra_stats 为额外属性加成（如装备词条）。"""
     stats, _cond = db.compute(species_id, level, talents or [])
+    if extra_stats:
+        for k, v in extra_stats.items():
+            stats[k] = float(stats.get(k, 0)) + float(v)
     return Fighter(name, side, level, stats, species_id)

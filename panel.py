@@ -242,9 +242,11 @@ class StatsPanel(CardPanel):
         self.refresh()
 
     def refresh(self) -> None:
+        import equipment
         pet = self.pet
         sp = self.db.species(pet.species_id) or {}
-        stats = pet.stats
+        stats = equipment.effective_stats(
+            self.db, pet.species_id, pet.level, pet.talents)
         need = self.db.exp_need(pet.level)
 
         self.name.setText(f"{sp.get('名称', '蛐蛐')}  Lv.{pet.level}")
