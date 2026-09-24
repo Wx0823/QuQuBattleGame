@@ -32,6 +32,8 @@ class EquipmentPanel(CardPanel):
         self.build_header(root)
         self.lbl_power = self._label("", accent=True)
         root.addWidget(self.lbl_power)
+        self.lbl_exp = self._label("")
+        root.addWidget(self.lbl_exp)
         body = QHBoxLayout()
         body.setSpacing(14)
         root.addLayout(body, 1)
@@ -167,6 +169,7 @@ class EquipmentPanel(CardPanel):
             f"{species.get('名称', '蛐蛐')}  Lv.{self.pet.level}    ·    战力 {fmt_num(round(self.db.power(eff)))}"
             f"    ·    已穿戴 {len(self.model.worn_items())}/{len(self.db.data.get('_装备部位顺序', []))}"
             + ('    ·    下场战斗生效' if getattr(self.pet, '_stage', None) else ''))
+        self.lbl_exp.setText(f"升级经验  {getattr(self.pet, 'xp', 0)} / {self.db.exp_need(self.pet.level)}")
         definitions = self.db.data.get('属性定义', {})
         self.lbl_stats.setText('\n'.join(
             f"{conf.get('属性名', attr)}   {fmt_num(eff.get(attr, 0))}"

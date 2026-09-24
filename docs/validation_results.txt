@@ -49,6 +49,7 @@ test_battle_end_is_last_event (__main__.GameplayTests.test_battle_end_is_last_ev
 test_battle_settings_do_not_resize_or_mask_field (__main__.GameplayTests.test_battle_settings_do_not_resize_or_mask_field) ... ok
 test_completed_callback_cannot_close_new_dungeon (__main__.GameplayTests.test_completed_callback_cannot_close_new_dungeon) ... ok
 test_conditional_talent_reacts_to_current_hp (__main__.GameplayTests.test_conditional_talent_reacts_to_current_hp) ... ok
+test_desktop_clear_auto_enters_next_difficulty_and_stops_at_last (__main__.GameplayTests.test_desktop_clear_auto_enters_next_difficulty_and_stops_at_last) ... ok
 test_dungeon_resume_keeps_roster_and_rng (__main__.GameplayTests.test_dungeon_resume_keeps_roster_and_rng) ... ok
 test_entry_heading_matches_motion_for_both_hosts (__main__.GameplayTests.test_entry_heading_matches_motion_for_both_hosts) ... ok
 test_equipment_snapshot_updates_next_fight (__main__.GameplayTests.test_equipment_snapshot_updates_next_fight) ... ok
@@ -59,6 +60,7 @@ test_final_boss_loot_callback_and_replay (__main__.GameplayTests.test_final_boss
 test_floor_clear_message_reports_completed_and_next_floor (__main__.GameplayTests.test_floor_clear_message_reports_completed_and_next_floor) ... ok
 test_full_dungeon_progression_and_exactly_once_rewards (__main__.GameplayTests.test_full_dungeon_progression_and_exactly_once_rewards) ... ok
 test_growth_caps_at_configured_level (__main__.GameplayTests.test_growth_caps_at_configured_level) ... ok
+test_idle_level_only_and_equipment_live_experience (__main__.GameplayTests.test_idle_level_only_and_equipment_live_experience) ... ok
 test_invalid_checkpoint_is_rejected (__main__.GameplayTests.test_invalid_checkpoint_is_rejected) ... ok
 test_lethal_reflection_stops_dead_attacker (__main__.GameplayTests.test_lethal_reflection_stops_dead_attacker) ... ok
 test_loot_visuals_queue_render_and_expire_without_duplicate_rewards (__main__.GameplayTests.test_loot_visuals_queue_render_and_expire_without_duplicate_rewards) ... ok
@@ -74,7 +76,7 @@ test_toughness_reduces_incoming_crit (__main__.GameplayTests.test_toughness_redu
 test_zero_drop_and_highest_quality_do_not_lie (__main__.GameplayTests.test_zero_drop_and_highest_quality_do_not_lie) ... ok
 
 ----------------------------------------------------------------------
-Ran 29 tests in 2.596s
+Ran 31 tests in 2.739s
 
 OK
 
@@ -86,7 +88,7 @@ test_saved_species_wins_over_stale_settings (__main__.SpeciesPersistenceTests.te
 test_ui_switch_is_saved_immediately_and_survives_restart (__main__.SpeciesPersistenceTests.test_ui_switch_is_saved_immediately_and_survives_restart) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.108s
+Ran 4 tests in 0.110s
 
 OK
 
@@ -100,7 +102,7 @@ test_removed_selection_cannot_be_equipped (__main__.EquipmentUITests.test_remove
 test_snapshot_content_and_pet_changes (__main__.EquipmentUITests.test_snapshot_content_and_pet_changes) ... ok
 
 ----------------------------------------------------------------------
-Ran 6 tests in 0.491s
+Ran 6 tests in 0.513s
 
 OK
 
@@ -115,6 +117,6 @@ test_ko_preserves_painted_body (__main__.ArtTests.test_ko_preserves_painted_body
 test_painter_state_and_opacity (__main__.ArtTests.test_painter_state_and_opacity) ... ok
 
 ----------------------------------------------------------------------
-Ran 7 tests in 0.224s
+Ran 7 tests in 0.229s
 
 OK

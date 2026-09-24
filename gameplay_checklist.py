@@ -24,6 +24,49 @@ from test_support import isolated_game_data
 
 
 class GameplayTests(unittest.TestCase):
+    def test_desktop_clear_auto_enters_next_difficulty_and_stops_at_last(self):
+        self.pet.begin_desktop_battle('d01')
+        stage = self.pet._stage
+        self.ready(stage)
+        stage.drun.floor = stage.drun.floors
+        stage.drun.eidx = stage.drun.n_enemies - 1
+        with patch('main.QTimer.singleShot') as timer:
+            self.kill(stage, 1)
+            stage._dungeon_advance()
+            callback = timer.call_args.args[1]
+        callback()
+        self.assertEqual(self.pet._stage.drun.diff_id, 'd02')
+        self.assertEqual(self.pet._stage.drun.floor, 1)
+        next_stage = self.pet._stage
+        callback()
+        self.assertIs(self.pet._stage, next_stage)
+        self.pet.begin_desktop_battle(self.db.data['_副本难度顺序'][-1])
+        last = self.pet._stage
+        last.dungeon_result = {'result': 'diff_clear'}
+        self.pet._delayed_exit_battle(last)
+        self.assertIsNone(self.pet._stage)
+
+    def test_idle_level_only_and_equipment_live_experience(self):
+        from unittest.mock import MagicMock
+        from PySide6.QtGui import QFontMetricsF
+        self.pet.level = 80
+        self.pet.xp = 123
+        for zoom in (.6, 1., 2.):
+            painter = MagicMock()
+            self.pet._draw_bar(painter, zoom)
+            rect, _, label = painter.drawText.call_args.args
+            font = painter.setFont.call_args.args[0]
+            metrics = QFontMetricsF(font)
+            self.assertEqual(label, 'Lv.80')
+            self.assertLessEqual(metrics.horizontalAdvance(label), rect.width())
+            self.assertLessEqual(metrics.height(), rect.height())
+        self.pet._toggle_equipment_panel()
+        panel = self.pet.equip_panel
+        self.assertIn('123 /', panel.lbl_exp.text())
+        self.pet.xp = 124
+        panel._poll_refresh()
+        self.assertIn('124 /', panel.lbl_exp.text())
+
     def test_floor_clear_message_reports_completed_and_next_floor(self):
         stage = self.stage()
         self.ready(stage)

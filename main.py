@@ -340,7 +340,7 @@ class Pet(QWidget):
     # ---------- 桌面副本 ----------
 
     def _on_desktop_diff_clear(self, res: dict) -> None:
-        """桌面副本通关：庆祝演出 → 自动撤回挂机模式。"""
+        """桌面副本通关：庆祝演出后继续下一难度，全部完成则回挂机。"""
         from PySide6.QtCore import QTimer
         stage = self._stage
         if stage is None:
@@ -361,14 +361,22 @@ class Pet(QWidget):
         stage._float("副本通关！", 0, "#FAC775", -80)
         stage._float("首通！" if first else "通关", 0, "#FAC775", -56)
         if unlock_txt:
-            stage._float(f"已解锁「{unlock_txt}」", 0, "#97C459", -34)
+            stage._float(f"即将挑战「{unlock_txt}」", 0, "#97C459", -34)
         stage._log(f"「{stage.drun.diff_name()}」副本通关！"
                    + ("（首通）" if first else ""))
-        # 庆祝 4.5 秒后自动撤回挂机模式
-        QTimer.singleShot(4500, lambda: self._delayed_exit_battle(stage))
+        # 庆祝和掉落展示结束后自动衔接下一难度
+        QTimer.singleShot(5000, lambda: self._delayed_exit_battle(stage))
 
     def _delayed_exit_battle(self, completed_stage) -> None:
-        if self._stage is completed_stage and completed_stage.dungeon_result is not None:
+        if (getattr(self, '_stopped', False) or self._stage is not completed_stage
+                or completed_stage.dungeon_result is None):
+            return
+        order = self.db.data.get('_副本难度顺序', [])
+        did = completed_stage.drun.diff_id
+        idx = order.index(did) if did in order else -1
+        if 0 <= idx < len(order) - 1:
+            self.begin_desktop_battle(diff_id=order[idx + 1])
+        else:
             self.end_desktop_battle()
 
     def begin_desktop_battle(self, diff_id: str | None = None,
@@ -617,10 +625,11 @@ class Pet(QWidget):
         p.drawRoundedRect(QRectF(x + w / 2 - cap_w / 2, y + 12 * f, cap_w, cap_h),
                           9.5 * f, 9.5 * f)
 
-        font = QFont("Microsoft YaHei", max(8, min(14, int(9 * f))))
+        font = QFont("Microsoft YaHei")
+        font.setPixelSize(max(9, min(20, int(12 * f))))
         font.setWeight(QFont.Weight.DemiBold)
         p.setFont(font)
-        label = f"Lv.{self.level}  {self.xp} / {need}"
+        label = f"Lv.{self.level}"
         p.setPen(QPen(QColor(255, 255, 255, 230), 1.0))
         p.drawText(QRectF(x + w / 2 - cap_w / 2, y + 12 * f, cap_w, cap_h),
                    Qt.AlignmentFlag.AlignCenter, label)

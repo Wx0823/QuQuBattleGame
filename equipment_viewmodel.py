@@ -28,7 +28,7 @@ class EquipmentViewModel:
 
     def reload(self):
         inventory = equipment.load_inventory()
-        pet_state = (self.pet.species_id, self.pet.level,
+        pet_state = (self.pet.species_id, self.pet.level, getattr(self.pet, "xp", 0),
                      tuple(self.pet.talents), bool(getattr(self.pet, "_stage", None)))
         snapshot = (inventory, pet_state)
         changed = snapshot != self._snapshot
