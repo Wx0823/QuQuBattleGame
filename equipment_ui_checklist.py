@@ -17,6 +17,40 @@ from stats import StatsDB
 
 
 class EquipmentUITests(unittest.TestCase):
+    def test_upgrade_arrow_follows_equipment_changes(self):
+        old = self.item(value=10)
+        better = self.item(value=10.2)
+        worse = self.item(quality=self.db.data['_装备品质顺序'][-1], value=9)
+        equal = self.item(value=10)
+        equipment.equip(old)
+        self.panel.refresh()
+        self.assertEqual(self.panel.model.upgrades(), {better})
+        cells = {c._uid: c for c in self.panel.inventory_grid.cells if c._uid}
+        self.assertTrue(cells[better]._upgrade)
+        self.assertIn('可提升', cells[better].toolTip())
+        self.assertFalse(cells[worse]._upgrade)
+        self.assertFalse(cells[equal]._upgrade)
+        self.panel._on_item(better)
+        self.panel._on_action()
+        self.assertFalse(self.panel.model.upgrades())
+        self.assertTrue(all(not c._upgrade for c in self.panel.inventory_grid.cells))
+
+    def test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot(self):
+        old = self.item(value=10)
+        candidate = self.item(value=20)
+        equipment.equip(old)
+        inventory = equipment.load_inventory()
+        first = next(iter(self.db.data['装备词条']))
+        attr = self.db.data['装备词条'][first]['属性ID']
+        other = next(key for key, row in self.db.data['装备词条'].items() if row['属性ID'] != attr)
+        inventory['items'][old]['affixes'].append({'id': other, 'val': 3, 'up': False})
+        equipment.save_inventory(inventory)
+        self.panel.refresh()
+        self.assertNotIn(candidate, self.panel.model.upgrades())
+        equipment.unequip(inventory['items'][old]['slot'])
+        self.panel.refresh()
+        self.assertIn(candidate, self.panel.model.upgrades())
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

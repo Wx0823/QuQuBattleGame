@@ -100,7 +100,7 @@ class EquipmentPanel(CardPanel):
         self.btn_action.clicked.connect(self._on_action)
         right.addWidget(self.btn_action)
         body.addLayout(right, 3)
-        root.addWidget(self._label("金色角标表示已穿戴 · 掉落每秒自动刷新 · 战斗中换装，下场战斗生效"))
+        root.addWidget(self._label("绿箭头：属性提升且无下降 · 金角标：已穿戴 · 战斗换装下场生效"))
         self._poll = QTimer(self)
         self._poll.setInterval(1000)
         self._poll.timeout.connect(self._poll_refresh)
@@ -187,7 +187,7 @@ class EquipmentPanel(CardPanel):
         visible = self.model.visible_items()
         self.lbl_inv.setText(f"显示 {len(visible)} / {len(self.model.items)} 件" if visible
                              else ('暂无匹配装备，请调整筛选' if self.model.items else '背包为空，挑战副本获得装备'))
-        self.inventory_grid.render(visible, self.model.equipped, self.sel_uid)
+        self.inventory_grid.render(visible, self.model.equipped, self.sel_uid, self.model.upgrades())
         self._refresh_detail()
 
     def _refresh_detail(self):

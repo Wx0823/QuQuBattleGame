@@ -161,7 +161,7 @@ class InventoryGrid(QWidget):
         self.grid.setSpacing(8)
         self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-    def render(self, items, equipped, selected_uid):
+    def render(self, items, equipped, selected_uid, upgrades=()):
         count = max(self.COLS * 4, ((len(items) + self.COLS - 1) // self.COLS) * self.COLS)
         while len(self.cells) < count:
             cell = QPushButton()
@@ -177,6 +177,7 @@ class InventoryGrid(QWidget):
             cell.setVisible(index < count)
             item = items[index] if index < len(items) else None
             cell._uid = item["uid"] if item else ""
+            cell._upgrade = cell._uid in upgrades
             cell.setEnabled(item is not None)
             cell.setChecked(bool(item) and selected_uid == cell._uid)
             if not item:
@@ -187,7 +188,21 @@ class InventoryGrid(QWidget):
                 continue
             color = _ui_color(equipment.quality_color(self.db, item))
             slot = self.db.data.get("装备部位", {}).get(item["slot"], {}).get("名称", item["slot"])
-            cell.setIcon(QIcon(slot_icon_pixmap(slot, color, cell._uid in worn)))
+            icon = slot_icon_pixmap(slot, color, cell._uid in worn)
+            if cell._upgrade:
+                # 复制缓存图标再叠加，避免箭头污染其他格子与详情图。
+                icon = icon.copy()
+                painter = QPainter(icon)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor('#16291E'))
+                painter.drawRoundedRect(QRectF(25, 0, 15, 20), 4, 4)
+                painter.setPen(QPen(QColor('#A8ED79'), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                painter.drawLine(QPointF(32.5, 16), QPointF(32.5, 5))
+                painter.drawLine(QPointF(28.5, 9), QPointF(32.5, 5))
+                painter.drawLine(QPointF(36.5, 9), QPointF(32.5, 5))
+                painter.end()
+            cell.setIcon(QIcon(icon))
             cell.setIconSize(QSize(40, 40))
             cell.setStyleSheet(
                 f"QPushButton{{background:#2A3430;border:1px solid {color};border-radius:8px;}}"
@@ -195,6 +210,8 @@ class InventoryGrid(QWidget):
                 "QPushButton:checked{background:#514B35;border:2px solid #E3C581;}"
                 "QPushButton:focus{border:2px solid #FFFFFF;}")
             title = item.get("名称", slot) + ("（已装备）" if cell._uid in worn else "")
+            if cell._upgrade:
+                title += "（可提升：相比同部位装备，属性有提升且无下降）"
             cell.setAccessibleName(title)
             affixes = equipment.item_affix_text(self.db, item)
             cell.setToolTip(escape(title) + "<br>" + "<br>".join(escape(t) for t, _ in affixes))

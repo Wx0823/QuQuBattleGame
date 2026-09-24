@@ -57,9 +57,9 @@ class EquipmentViewModel:
         return equipment.effective_stats(self.db, self.pet.species_id,
                                          self.pet.level, self.pet.talents, self.worn_items())
 
-    def comparison(self):
+    def comparison(self, item=None):
         """选中装备相对当前同部位装备的属性差，包含替换后失去的词条。"""
-        item = self.selected
+        item = self.selected if item is None else item
         if not item or self.equipped.get(item["slot"]) == item["uid"]:
             return {}
         old = self.items.get(self.equipped.get(item["slot"]))
@@ -74,6 +74,15 @@ class EquipmentViewModel:
         return {key: after.get(key, 0) - before.get(key, 0)
                 for key in dict.fromkeys([*before, *after])
                 if abs(after.get(key, 0) - before.get(key, 0)) > 1e-6}
+
+    def upgrades(self):
+        """同部位至少一项属性提升且没有属性下降，空槽以零加成为基准。"""
+        result = set()
+        for uid, item in self.items.items():
+            delta = self.comparison(item)
+            if delta and all(value > 0 for value in delta.values()):
+                result.add(uid)
+        return result
 
     def toggle_selected(self):
         # 操作前重读，防止定时刷新间隙里装备已变动。
