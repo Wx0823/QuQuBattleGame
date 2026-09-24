@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainterPath, QPen
 from art_assets import draw_sprite, species_sprite
 
 _HEAD_ANCHORS = {}
+_LIMB_PALETTES = {}
 
 
 def side_antenna_roots(pix, rect):
@@ -45,12 +46,23 @@ def stroke(p, points, color, width):
 
 def limb_colors(pal):
     """腿部以低饱和甲褐色为底，仅保留少量品种色，避免荧光塑料感。"""
-    base = pal['body']
-    earth = QColor('#86704D')
-    mid = QColor(*(round(a*.35+b*.65) for a, b in zip(
-        (base.red(), base.green(), base.blue()),
-        (earth.red(), earth.green(), earth.blue()))))
-    return mid.darker(210), mid, mid.lighter(135)
+    pix = species_sprite('side', pal)
+    key = (pix.cacheKey(), pal['body'].rgba())
+    if key not in _LIMB_PALETTES:
+        mid = QColor(pal['body'])
+        if not pix.isNull():
+            im = pix.toImage()
+            samples = [im.pixelColor(x,y) for x in range(0,im.width(),max(1,im.width()//24))
+                       for y in range(0,im.height(),max(1,im.height()//16))
+                       if im.pixelColor(x,y).alpha()>220 and im.pixelColor(x,y).lightness()>20]
+            if samples:
+                mid = QColor(*(sorted(getattr(c, channel)() for c in samples)[len(samples)//2]
+                               for channel in ('red','green','blue')))
+        if len(_LIMB_PALETTES)>64:
+            _LIMB_PALETTES.clear()
+        mid = mid.lighter(118)
+        _LIMB_PALETTES[key] = (mid.darker(190), mid, mid.lighter(155))
+    return _LIMB_PALETTES[key]
 
 
 def limb(p, points, pal, width=2.4, spines=False):
@@ -60,7 +72,7 @@ def limb(p, points, pal, width=2.4, spines=False):
         dx, dy = x1-x0, y1-y0
         length = max(1, math.hypot(dx, dy))
         nx, ny = -dy/length, dx/length
-        radius = width*.35 * (.65**index)
+        radius = width*.48 * (.65**index)
         tip = max(.18, radius*.5)
         path = QPainterPath(QPointF(x0+nx*radius, y0+ny*radius))
         path.quadTo(x0+dx*.5+nx*radius*.65, y0+dy*.5+ny*radius*.65,
@@ -76,6 +88,14 @@ def limb(p, points, pal, width=2.4, spines=False):
         grad.setColorAt(1, dark)
         p.setBrush(grad)
         p.drawPath(path)
+        # 短促的节纹与有体积的关节，避免细腿像一根平直描线。
+        for t in (.2, .38, .57, .75):
+            x, y = x0+dx*t, y0+dy*t
+            stroke(p, [(x-nx*radius*.6,y-ny*radius*.6),
+                       (x+nx*radius*.35-dx*.015,y+ny*radius*.35-dy*.015)], dark, .25)
+        if index < 2:
+            p.setPen(QPen(dark,.3)); p.setBrush(mid.lighter(115))
+            p.drawEllipse(QPointF(x1,y1), max(.4,radius*.65), max(.35,radius*.48))
         if spines and index == 0:
             for k in (.25, .43, .61, .78):
                 x, y = x0+dx*k, y0+dy*k
@@ -101,6 +121,14 @@ def femur(p, root, knee, pal, thickness=4):
     p.setPen(QPen(dark, .6))
     p.setBrush(grad)
     p.drawPath(path)
+    # 甲壳贴图的细纹随股节轮廓裁切，与躯干共享材质而非平滑塑料色。
+    texture = species_sprite('side', pal)
+    if not texture.isNull():
+        p.save()
+        p.setClipPath(path, Qt.ClipOperation.IntersectClip)
+        p.setOpacity(p.opacity()*.48)
+        draw_sprite(p, texture, path.boundingRect())
+        p.restore()
     # 少量纵向肌理取代贯穿整条腿的亮色粗线。
     for fraction in (-.3, .15, .45):
         stroke(p, [(x0+dx*.2+nx*fraction, y0+dy*.2+ny*fraction),
@@ -108,13 +136,17 @@ def femur(p, root, knee, pal, thickness=4):
 
 
 def feeler(p, root, middle, tip, pal):
-    path = QPainterPath(QPointF(*root))
-    path.quadTo(QPointF(*middle), QPointF(*tip))
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.setPen(QPen(pal['dk'].darker(140), 1.5))
-    p.drawPath(path)
-    p.setPen(QPen(QColor('#BEA774'), .55))
-    p.drawPath(path)
+    dark, mid, light = limb_colors(pal)
+    def point(t):
+        return ((1-t)**2*root[0]+2*(1-t)*t*middle[0]+t*t*tip[0],
+                (1-t)**2*root[1]+2*(1-t)*t*middle[1]+t*t*tip[1])
+    for index in range(36):
+        t = index/36
+        a, b = point(t), point((index+1)/36)
+        width = 1.35*(1-t)**1.25+.16
+        stroke(p, [a,b], dark, width)
+        stroke(p, [(a[0],a[1]-.12),(b[0],b[1]-.12)],
+               light if index % 3 else mid, width*.58)
 
 
 def side_body(p, c, pal):

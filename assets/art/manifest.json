@@ -1,12 +1,51 @@
 {
   "version": 1,
-  "species": {"c001": 0, "c002": 1, "c003": 2, "c004": 3, "c005": 4, "c006": 5},
-  "slots": {"触须": 0, "牙齿": 1, "前躯": 2, "后躯": 3, "翅膀": 4, "尾巴": 5},
+  "species": {
+    "c001": 0,
+    "c002": 1,
+    "c003": 2,
+    "c004": 3,
+    "c005": 4,
+    "c006": 5
+  },
+  "slots": {
+    "触须": 0,
+    "牙齿": 1,
+    "前躯": 2,
+    "后躯": 3,
+    "翅膀": 4,
+    "尾巴": 5
+  },
   "atlases": {
-    "side": {"file": "crickets_side.png", "columns": 3, "rows": 2},
-    "top": {"file": "crickets_top.png", "columns": 3, "rows": 2},
-    "equipment": {"file": "equipment.png", "columns": 3, "rows": 2},
-    "effects": {"file": "effects.png", "columns": 2, "rows": 2},
-    "arena": {"file": "arena.png", "columns": 1, "rows": 1}
+    "side": {
+      "file": "crickets_side.png",
+      "columns": 3,
+      "rows": 2
+    },
+    "top": {
+      "file": "crickets_top.png",
+      "columns": 3,
+      "rows": 2
+    },
+    "equipment": {
+      "file": "equipment.png",
+      "columns": 3,
+      "rows": 2
+    },
+    "effects": {
+      "file": "effects.png",
+      "columns": 2,
+      "rows": 2
+    },
+    "arena": {
+      "file": "arena.png",
+      "columns": 1,
+      "rows": 1
+    },
+    "grass": {
+      "file": "idle_grass.png",
+      "columns": 1,
+      "rows": 1
+    }
   }
 }

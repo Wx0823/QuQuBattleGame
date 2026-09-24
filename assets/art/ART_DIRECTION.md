@@ -55,3 +55,12 @@ Production 2D game VFX sprite atlas for a refined hand-painted semi-realistic Ch
 ## arena
 
 Use case: stylized-concept. A production game environment sprite: ONE empty traditional Chinese cricket fighting ceramic bowl seen in strict orthographic top-down view, perfectly circular rim. Premium hand-painted semi-realistic 2D game art matching natural cricket sprites and bronze equipment icons. Warm aged charcoal-brown earthenware thick rim with subtle handmade incised concentric bands, inner wall smooth warm umber, broad flat pale sand clay floor with restrained fine mineral grain, tiny worn scratches and subtle diffuse shading. Playable interior must be flat, quiet, spacious, unobstructed, readable, approximately 85% of diameter. No crickets, no creatures, no rocks, no plants, no writing, no glyphs, no tools, no UI. Whole bowl centered with 6% transparent margin outside circular rim, true alpha transparent background. No table or outside environment. Polished painterly texture, no heavy vignette or dramatic shadows. Square output.
+
+## v0.6.11 待机草地
+
+- 素材：`idle_grass.png`，使用内置 image_gen 工具生成，保留原始透明通道；游戏运行时通过既有 sprite 入口裁掉透明外边，不修改源图。
+- 用途：蛐蛐脚下的草地台座，地块内部承载装备/副本按钮；等级与经验位于头顶横排。
+- 四肢继续使用可动画骨架：颜色采样身体贴图，股节叠加同源甲壳纹理，胫节增加节纹与关节体积，触须渐细并呈分节明暗。避免重新引入统一浅棕色粗线。
+- 生成提示词：
+
+Create one production game sprite, transparent RGBA background, no lettering no insects no UI buttons. A long low horizontal floating cutaway patch of meadow turf, front/side view with just a slight view of the grassy top, aspect ratio about 5:1. Precise silhouette: flat walkable top rim, short fine mossy olive-green grass along entire top, very shallow earthy brown soil thickness beneath with a few small roots and warm mineral grains. The soil front face must be dark, calm and mostly uncluttered in its center so two UI buttons can later overlay it. Mature delicate hand-painted natural history illustration, slightly realistic, intricate fine brush texture, warm muted bronze and moss colors, soft upper-left light. Isolated on genuinely transparent background with ample transparent padding, no drop-shadow rectangle, no scenery or sky. This will sit beneath a detailed bronze-black cricket in a desktop pet game. Flat horizontal layout not an isometric cube, not cartoon, no bright neon greens. Output crisp high resolution.

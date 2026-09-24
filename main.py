@@ -24,7 +24,7 @@ LOG_FILE = os.path.join(APP_DIR, "error.log")
 
 from PySide6.QtCore import QObject, QRectF, QSharedMemory, Qt, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QCursor, QFont, QIcon,
-                           QPainter, QPen, QPixmap, QRegion)
+                           QPainter, QPen, QPixmap, QRegion, QFontMetricsF)
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from pynput import keyboard, mouse
@@ -39,9 +39,9 @@ from persistence import write_json
 
 # 基准尺寸，实际显示尺寸 = 基准 × 缩放（设置面板可调）
 # 顶部多留 TOP_PAD：经验飘字往上升，没这块会被 setMask 裁掉上半截
-WIN_W, WIN_H = 190, 224
+WIN_W, WIN_H = 240, 240
 TOP_PAD = 16
-CX = 98.0
+CX = 120.0
 FOOT_Y = 155.0
 SCALE = 1.3
 
@@ -191,9 +191,9 @@ class Pet(QWidget):
             self.btn_attr.setFixedSize(bw, bh)
             self.btn_dungeon.setFixedSize(bw, bh)
             bx = max(0, (self.width() - 2*bw - 6)//2)
-            self.btn_attr.move(bx, int(8 * self.zoom))
+            self.btn_attr.move(bx, int((TOP_PAD + 174) * self.zoom))
             self.btn_attr.show()
-            self.btn_dungeon.move(bx + bw + 6, int(8 * self.zoom))
+            self.btn_dungeon.move(bx + bw + 6, int((TOP_PAD + 174) * self.zoom))
             self.btn_dungeon.show()
 
     def _toggle_equipment_panel(self) -> None:
@@ -250,15 +250,15 @@ class Pet(QWidget):
             return
         f = self.zoom
         # 飘字带：从窗口顶到蛐蛐头顶，保证 "+12" 这类数字完整显示
-        region = QRegion(int(16 * f), 0, int(164 * f), int(70 * f))
+        region = QRegion(int(22 * f), 0, int(196 * f), int(70 * f))
         # 蛐蛐本体 + 升级光圈（y 已含 TOP_PAD 偏移；左界/底界给光圈留足空间）
         region = region.united(
-            QRegion(int(16 * f), int((36 + TOP_PAD) * f),
-                    int(168 * f), int(128 * f)))
+            QRegion(int(32 * f), int((36 + TOP_PAD) * f),
+                    int(176 * f), int(128 * f)))
+        # 草地与内嵌按钮属于可交互区域；顶部经验条与等级保持同排。
+        region = region.united(QRegion(int(6*f), int((TOP_PAD+140)*f), int(228*f), int(84*f)))
         if self.settings.show_bar:
-            region = region.united(
-                QRegion(int(24 * f), int((162 + TOP_PAD) * f),
-                        int(142 * f), int(46 * f)))
+            region = region.united(QRegion(int(30*f), int((TOP_PAD+2)*f), int(180*f), int(24*f)))
         # 模式按钮也要在 mask 内，否则不渲染不可点
         for name in ("btn_attr", "btn_dungeon"):
             b = getattr(self, name, None)
@@ -571,6 +571,8 @@ class Pet(QWidget):
             p.setBrush(QBrush(QColor(242, 178, 51, int(70 * k))))
             p.drawEllipse(QRectF(CX * f - gw / 2, (FOOT_Y - 96) * f, gw, 104 * f))
 
+        from art_assets import sprite, draw_sprite
+        draw_sprite(p, sprite('grass'), QRectF(6*f, 140*f, 228*f, 76*f))
         paint_cricket(p, CX * f, FOOT_Y * f, SCALE * f, self.cricket, self.palette)
 
         self._draw_floats(p, f)
@@ -587,7 +589,7 @@ class Pet(QWidget):
             alpha = min(1.0, life / (max_life * 0.5))
             c = QColor(color)
             c.setAlphaF(alpha)
-            r = QRectF((CX + dx) * f - 60 * f, (FOOT_Y - 128) * f - dy * f,
+            r = QRectF((CX + dx) * f - 60 * f, max(32*f, (FOOT_Y - 104)*f - dy*f),
                        120 * f, 22 * f)
             p.setPen(QPen(QColor(0, 0, 0, int(120 * alpha)), 3.0))
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
@@ -597,32 +599,25 @@ class Pet(QWidget):
     def _draw_bar(self, p: QPainter, f: float) -> None:
         need = self.db.exp_need(self.level)
         ratio = max(0.0, min(1.0, self.xp / need))
-        x, y, w, h = 34.0 * f, 170.0 * f, 122.0 * f, 9.0 * f
-
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(0, 0, 0, 95)))
-        p.drawRoundedRect(QRectF(x, y, w, h), 4.5 * f, 4.5 * f)
-        p.setBrush(QBrush(QColor("#8FD14F")))
-        p.drawRoundedRect(QRectF(x, y, w * ratio, h), 4.5 * f, 4.5 * f)
-        p.setBrush(QBrush(QColor(255, 255, 255, 70)))
-        p.drawRoundedRect(QRectF(x + 1, y + 1, max(0.0, w * ratio - 2), 3 * f),
-                          1.5 * f, 1.5 * f)
-
-        # 文字底衬：桌面上背景不可控，加个深色胶囊保证任何壁纸下都能看清
-        cap_w, cap_h = 108 * f, 19 * f
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(0, 0, 0, 135)))
-        p.drawRoundedRect(QRectF(x + w / 2 - cap_w / 2, y + 12 * f, cap_w, cap_h),
-                          9.5 * f, 9.5 * f)
-
         font = QFont("Microsoft YaHei")
-        font.setPixelSize(max(9, min(20, int(12 * f))))
+        font.setPixelSize(max(9, min(20, int(12*f))))
+        font.setWeight(QFont.Weight.DemiBold)
+        level_width = max(50., 56*f, QFontMetricsF(font).horizontalAdvance(f"Lv.{self.level}")+6*f)
+        x, y, w, h = 36*f+level_width+4*f, 12*f, 164*f-level_width, 7*f
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(19, 29, 22, 220))
+        p.drawRoundedRect(QRectF(32*f, 2*f, 176*f, 26*f), 10*f, 10*f)
+        p.setBrush(QColor('#43513A'))
+        p.drawRoundedRect(QRectF(x, y, w, h), 3.5*f, 3.5*f)
+        p.setBrush(QColor('#A3C771'))
+        p.drawRoundedRect(QRectF(x, y, w*ratio, h), 3.5*f, 3.5*f)
+        font = QFont("Microsoft YaHei")
+        font.setPixelSize(max(9, min(20, int(12*f))))
         font.setWeight(QFont.Weight.DemiBold)
         p.setFont(font)
         label = f"Lv.{self.level}"
-        p.setPen(QPen(QColor(255, 255, 255, 230), 1.0))
-        p.drawText(QRectF(x + w / 2 - cap_w / 2, y + 12 * f, cap_w, cap_h),
-                   Qt.AlignmentFlag.AlignCenter, label)
+        p.setPen(QColor('#EEE6D6'))
+        p.drawText(QRectF(36*f, 2*f, level_width, 26*f), Qt.AlignmentFlag.AlignCenter, label)
 
     # ---------- 交互 ----------
 

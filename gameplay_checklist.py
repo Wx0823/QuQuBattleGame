@@ -24,6 +24,20 @@ from test_support import isolated_game_data
 
 
 class GameplayTests(unittest.TestCase):
+    def test_idle_grass_buttons_and_header_at_all_zooms(self):
+        from art_assets import sprite
+        self.assertFalse(sprite('grass').isNull())
+        for zoom in (.6, 1., 2.):
+            self.pet.set_zoom(zoom)
+            for button in (self.pet.btn_attr, self.pet.btn_dungeon):
+                self.assertGreater(button.y(), (main.TOP_PAD+main.FOOT_Y)*zoom)
+                self.assertTrue(self.pet.rect().contains(button.geometry()))
+                self.assertTrue(self.pet.mask().contains(button.geometry().center()))
+            self.assertFalse(self.pet.btn_attr.geometry().intersects(self.pet.btn_dungeon.geometry()))
+        self.pet.settings.show_bar = False
+        self.pet._update_mask()
+        self.assertTrue(self.pet.mask().contains(self.pet.btn_attr.geometry().center()))
+
     def test_context_menu_refreshes_state_and_routes_actions(self):
         from menu_ui import create_menu
         menu = create_menu(self.pet)
