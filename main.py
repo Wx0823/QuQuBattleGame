@@ -197,14 +197,21 @@ class Pet(QWidget):
             self.btn_dungeon.show()
 
     def _toggle_equipment_panel(self) -> None:
+        self._open_character_page(1)
+
+    def _toggle_attribute_panel(self) -> None:
+        self._open_character_page(0)
+
+    def _open_character_page(self, index) -> None:
         from equipment_ui import EquipmentPanel
         panel = getattr(self, "equip_panel", None)
-        if panel is not None and panel.isVisible():
+        if panel is not None and panel.isVisible() and panel.pages.currentIndex() == index:
             panel.hide()
             return
         if panel is None:
             panel = EquipmentPanel(self)
             self.equip_panel = panel
+        panel.set_page(index)
         panel.refresh()
         panel.show_near(self)
 

@@ -17,6 +17,44 @@ from stats import StatsDB
 
 
 class EquipmentUITests(unittest.TestCase):
+    def test_separate_pages_and_clickable_attribute_help(self):
+        size = self.panel.size()
+        self.panel.btn_stats_page.click()
+        self.assertEqual(self.panel.pages.currentWidget(), self.panel.stats_page)
+        self.panel.stat_buttons['hp'].click()
+        self.assertIn('生命值', self.panel.help_text.text())
+        self.panel.stat_buttons['tough'].click()
+        self.assertIn('暴击', self.panel.help_text.text())
+        self.panel.btn_equipment_page.click()
+        self.assertEqual(self.panel.pages.currentWidget(), self.panel.equipment_page)
+        self.assertEqual(size, self.panel.size())
+
+    def test_slot_drawer_docks_filters_equips_and_hides(self):
+        first, second = self.db.data['_装备部位顺序'][:2]
+        uid = self.item(first, value=14)
+        self.item(second, value=20)
+        self.panel.refresh()
+        self.panel.slot_btns[first].click()
+        self.app.processEvents()
+        self.assertTrue(self.panel.drawer.isVisible())
+        self.assertEqual([it['uid'] for it in self.panel.model.visible_items()], [uid])
+        self.assertEqual(self.panel.drawer.x(), self.panel.x()+self.panel.width()+8)
+        self.assertEqual(self.panel.drawer.y(), self.panel.y())
+        self.panel._on_item(uid)
+        self.panel.btn_action.click()
+        self.assertEqual(equipment.get_equipped()[first], uid)
+        screen = self.panel.screen().availableGeometry()
+        self.panel.move(screen.right()-10, screen.top())
+        self.app.processEvents()
+        self.assertLessEqual(self.panel.drawer.frameGeometry().right(), screen.right())
+        self.panel.btn_stats_page.click()
+        self.assertFalse(self.panel.drawer.isVisible())
+        self.panel.btn_equipment_page.click()
+        self.panel.slot_btns[second].click()
+        self.assertTrue(all(it['slot'] == second for it in self.panel.model.visible_items()))
+        self.panel.hide()
+        self.assertFalse(self.panel.drawer.isVisible())
+
     def test_only_best_upgrade_per_slot_independent_of_filters(self):
         old = self.item(value=9.4)
         weaker = self.item(value=10.3)
@@ -187,12 +225,14 @@ class EquipmentUITests(unittest.TestCase):
         self.panel.slot_filter.setCurrentIndex(0)
         self.panel._on_item(self.panel.model.visible_items()[0]['uid'])
         self.app.processEvents()
-        image = self.panel.grab().toImage()
+        self.panel._on_slot_click(self.db.data['_装备部位顺序'][0])
+        self.app.processEvents()
+        image = self.panel.drawer.grab().toImage()
         viewport = self.panel.inv_area.viewport()
-        point = viewport.mapTo(self.panel, QPoint(viewport.width() - 3, 3))
+        point = viewport.mapTo(self.panel.drawer, QPoint(viewport.width() - 3, 3))
         color = image.pixelColor(point)
         self.assertLess(max(color.red(), color.green(), color.blue()), 90)
-        self.assertTrue(self.panel.rect().contains(self.panel.btn_action.mapTo(self.panel, QPoint(0, 0))))
+        self.assertTrue(self.panel.drawer.rect().contains(self.panel.btn_action.mapTo(self.panel.drawer, QPoint(0, 0))))
         if os.environ.get('EQUIPMENT_UI_PREVIEW'):
             image.save(os.environ['EQUIPMENT_UI_PREVIEW'])
 

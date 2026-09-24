@@ -64,6 +64,7 @@ def populate_menu(menu, pet):
         add('挑战副本', 'dungeon', pet._open_dungeon_select)
         add('发起对战', 'fight', pet._open_arena)
     menu.addSeparator()
+    add('蛐蛐属性', 'dungeon', pet._toggle_attribute_panel)
     add('蛐蛐装备', 'equipment', pet._toggle_equipment_panel)
     add('蛐蛐设置', 'settings', pet._toggle_settings)
     menu.addSeparator()

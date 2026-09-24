@@ -123,7 +123,7 @@ QuQuBattleGame/
 
 每次修改完成并验证后，整理版本说明、提交 commit、创建递增版本 tag，并推送提交和该标签到 origin。玩家存档与偏好不随代码发布。
 
-当前版本：`v0.6.9`，详见 [版本记录](CHANGELOG.md)。
+当前版本：`v0.6.10`，详见 [版本记录](CHANGELOG.md)。
 
 ```
 git commit -m "v0.2: 属性与状态条"
@@ -147,6 +147,8 @@ git push -u origin main --tags
 
 ## 全项目回归
 
-运行 `python check_project.py`，执行语法检查及 76 项自动检查（包括十难度战斗模拟）。
+运行 `python check_project.py`，执行语法检查及 78 项自动检查（包括十难度战斗模拟）。
 自动回归使用临时存档，结果写入 `docs/validation_results.txt`。
 问题修复、模拟数据与验收边界见 [代码检查报告](docs/CODE_AUDIT.md)。
+
+属性与装备使用同尺寸独立页面，可在页签间切换。点击属性查看用途；点击装备部位，在右侧展开该部位背包并穿戴或替换。右键菜单可直接打开属性页或装备页。
