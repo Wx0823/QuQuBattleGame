@@ -54,8 +54,7 @@ class GameplayTests(unittest.TestCase):
         self.pet._toggle_equipment_panel()
         equipment_panel = self.pet.equip_panel
         self.pet.settings_panel.show()
-        equipment_panel.move(10, 10)
-        self.pet.settings_panel.move(10, 10)
+        self.pet._place_open_panels()
         self.app.processEvents()
         before = [p.pos() for p in (equipment_panel, self.pet.settings_panel)]
         self.pet.move(self.pet.pos()+QPoint(12, 9))
@@ -67,6 +66,25 @@ class GameplayTests(unittest.TestCase):
         self.pet.move(self.pet.pos()+QPoint(12, 9))
         self.app.processEvents()
         self.assertEqual(self.pet.settings_panel.pos(), hidden_pos)
+
+    def test_corner_layout_at_all_zooms_and_offset_screens(self):
+        from PySide6.QtCore import QRect, QSize, QPoint
+        from window_layout import beside, clamp_position
+        for bounds in (QRect(0, 0, 1920, 1040), QRect(-1920, 80, 1920, 1040)):
+            for zoom in (.6, .79, 1., 2.):
+                size = QSize(int(main.WIN_W*zoom), int(main.WIN_H*zoom))
+                for corner in (bounds.topLeft(), bounds.topRight(), bounds.bottomLeft(), bounds.bottomRight()):
+                    pos = clamp_position(corner, size, bounds)
+                    pet = QRect(pos, size)
+                    self.assertTrue(bounds.contains(pet))
+                    for panel_size in (QSize(320, 400), QSize(380, 620), QSize(788, 620)):
+                        panel = QRect(beside(pet, panel_size, bounds), panel_size)
+                        self.assertTrue(bounds.contains(panel))
+                        self.assertFalse(panel.intersects(pet))
+        self.pet.show()
+        self.pet.move(-500, -500)
+        self.pet._clamp_into_screen()
+        self.assertTrue(self.pet.screen().availableGeometry().contains(self.pet.frameGeometry()))
 
     def test_context_menu_refreshes_state_and_routes_actions(self):
         from menu_ui import create_menu

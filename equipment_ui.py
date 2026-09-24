@@ -305,13 +305,8 @@ class EquipmentPanel(CardPanel):
         # 使用所在屏幕的可用区域，避免宽面板越过屏幕边缘或任务栏。
         screen = anchor.screen().availableGeometry()
         self.setFixedSize(min(self.W, screen.width()), min(self.H, screen.height()))
-        g = anchor.frameGeometry()
-        x = g.left() - self.width() - 12
-        if x < screen.left():
-            x = g.right() + 12
-        x = max(screen.left(), min(x, screen.right() - self.width() + 1))
-        y = max(screen.top(), min(g.top(), screen.bottom() - self.height() + 1))
-        self.move(x, y)
+        from window_layout import place_panel
+        place_panel(self, anchor)
         self.show()
         self.raise_()
 

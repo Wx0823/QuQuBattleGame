@@ -89,14 +89,8 @@ class CardPanel(QWidget):
 
     def show_near(self, anchor: QWidget) -> None:
         """显示在蛐蛐旁边，默认左侧，放不下就放右侧。"""
-        g = anchor.frameGeometry()
-        available = anchor.screen().availableGeometry()
-        x = g.left() - self.width() - 12
-        if x < available.left():
-            x = g.right() + 12
-        x = max(available.left(), min(x, available.right()-self.width()+1))
-        y = max(available.top(), min(g.top(), available.bottom()-self.height()+1))
-        self.move(x, y)
+        from window_layout import place_panel
+        place_panel(self, anchor)
         self.show()
         self.raise_()
 

@@ -440,6 +440,7 @@ class Pet(QWidget):
     def place_initial(self) -> None:
         if self._start_pos:
             self.move(*self._start_pos)
+            self._clamp_into_screen()
             return
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.right() - self.width() - 40,
@@ -658,24 +659,21 @@ class Pet(QWidget):
 
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
-        delta = event.pos() - event.oldPos()
-        if delta.isNull():
-            return
+        self._place_open_panels()
+
+    def _place_open_panels(self):
+        from window_layout import place_panel
         for name in ('panel', 'settings_panel', 'equip_panel', 'dungeon_sel', 'arena_win'):
             panel = getattr(self, name, None)
-            if panel is None or not panel.isVisible():
-                continue
-            target = panel.pos() + delta
-            screen = QApplication.screenAt(target + panel.rect().center()) or self.screen()
-            bounds = screen.availableGeometry()
-            target.setX(max(bounds.left(), min(target.x(), bounds.right()-panel.width()+1)))
-            target.setY(max(bounds.top(), min(target.y(), bounds.bottom()-panel.height()+1)))
-            panel.move(target)
-            # 装备页自身的 moveEvent 继续负责右侧背包的贴靠与边界处理。
+            if panel is not None and panel.isVisible():
+                place_panel(panel, self)
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging and (event.buttons() & Qt.MouseButton.LeftButton):
-            self.move(event.globalPosition().toPoint() - self._offset)
+            from window_layout import clamp_position, screen_for_point
+            screen = screen_for_point(event.globalPosition().toPoint(), self.screen())
+            self.move(clamp_position(event.globalPosition().toPoint() - self._offset,
+                                     self.size(), screen.availableGeometry()))
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -772,10 +770,10 @@ class Pet(QWidget):
             self.settings_panel.show_near(self)
 
     def _clamp_into_screen(self) -> None:
-        screen = QApplication.primaryScreen().availableGeometry()
-        nx = min(max(self.x(), screen.left() - self.width() + 70), screen.right() - 70)
-        ny = min(max(self.y(), screen.top()), screen.bottom() - 70)
-        self.move(nx, ny)
+        from window_layout import clamp_position, screen_for_point
+        screen = screen_for_point(self.frameGeometry().center(), self.screen())
+        self.move(clamp_position(self.pos(), self.size(), screen.availableGeometry()))
+        self._place_open_panels()
 
     def _reset(self) -> None:
         from dungeon import DungeonRun
