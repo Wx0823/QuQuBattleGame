@@ -211,7 +211,7 @@ class InventoryGrid(QWidget):
                 "QPushButton:focus{border:2px solid #FFFFFF;}")
             title = item.get("名称", slot) + ("（已装备）" if cell._uid in worn else "")
             if cell._upgrade:
-                title += "（可提升：相比同部位装备，属性有提升且无下降）"
+                title += "（可提升：同部位唯一推荐，属性无下降；按战力收益、属性收益、品质择优，同分优先较早获得）"
             cell.setAccessibleName(title)
             affixes = equipment.item_affix_text(self.db, item)
             cell.setToolTip(escape(title) + "<br>" + "<br>".join(escape(t) for t, _ in affixes))

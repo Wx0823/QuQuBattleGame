@@ -76,7 +76,7 @@ test_toughness_reduces_incoming_crit (__main__.GameplayTests.test_toughness_redu
 test_zero_drop_and_highest_quality_do_not_lie (__main__.GameplayTests.test_zero_drop_and_highest_quality_do_not_lie) ... ok
 
 ----------------------------------------------------------------------
-Ran 31 tests in 2.934s
+Ran 31 tests in 2.786s
 
 OK
 
@@ -88,15 +88,17 @@ test_saved_species_wins_over_stale_settings (__main__.SpeciesPersistenceTests.te
 test_ui_switch_is_saved_immediately_and_survives_restart (__main__.SpeciesPersistenceTests.test_ui_switch_is_saved_immediately_and_survives_restart) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.118s
+Ran 4 tests in 0.120s
 
 OK
 
 
 === equipment_ui_checklist.py (exit 0) ===
 test_empty_and_timer (__main__.EquipmentUITests.test_empty_and_timer) ... ok
+test_equal_upgrades_choose_quality_then_stable_uid (__main__.EquipmentUITests.test_equal_upgrades_choose_quality_then_stable_uid) ... ok
 test_equipping_comparison_and_removal (__main__.EquipmentUITests.test_equipping_comparison_and_removal) ... ok
 test_filters_and_config_extension (__main__.EquipmentUITests.test_filters_and_config_extension) ... ok
+test_only_best_upgrade_per_slot_independent_of_filters (__main__.EquipmentUITests.test_only_best_upgrade_per_slot_independent_of_filters) ... ok
 test_pool_growth_and_pixel_render (__main__.EquipmentUITests.test_pool_growth_and_pixel_render) ... ok
 test_removed_selection_cannot_be_equipped (__main__.EquipmentUITests.test_removed_selection_cannot_be_equipped) ... ok
 test_snapshot_content_and_pet_changes (__main__.EquipmentUITests.test_snapshot_content_and_pet_changes) ... ok
@@ -104,7 +106,7 @@ test_upgrade_arrow_follows_equipment_changes (__main__.EquipmentUITests.test_upg
 test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot (__main__.EquipmentUITests.test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot) ... ok
 
 ----------------------------------------------------------------------
-Ran 8 tests in 0.671s
+Ran 10 tests in 0.731s
 
 OK
 
@@ -119,6 +121,6 @@ test_ko_preserves_painted_body (__main__.ArtTests.test_ko_preserves_painted_body
 test_painter_state_and_opacity (__main__.ArtTests.test_painter_state_and_opacity) ... ok
 
 ----------------------------------------------------------------------
-Ran 7 tests in 0.230s
+Ran 7 tests in 0.233s
 
 OK

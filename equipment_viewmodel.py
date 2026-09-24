@@ -76,13 +76,21 @@ class EquipmentViewModel:
                 if abs(after.get(key, 0) - before.get(key, 0)) > 1e-6}
 
     def upgrades(self):
-        """同部位至少一项属性提升且没有属性下降，空槽以零加成为基准。"""
-        result = set()
-        for uid, item in self.items.items():
+        """全背包每部位仅推荐一件无损提升；按战力收益、属性收益、品质择优。"""
+        best = {}
+        ranks = {qid: i for i, qid in enumerate(equipment.quality_order(self.db))}
+        # 并列时固定选择较早获得的 UID，不受背包排序和筛选影响。
+        ordered = sorted(self.items.items(), key=lambda pair: (
+            int(pair[0]) if str(pair[0]).isdigit() else float('inf'), str(pair[0])))
+        for uid, item in ordered:
             delta = self.comparison(item)
             if delta and all(value > 0 for value in delta.values()):
-                result.add(uid)
-        return result
+                score = (round(self.db.power(delta), 6), round(sum(delta.values()), 6),
+                         ranks.get(item['quality'], -1))
+                slot = item['slot']
+                if slot not in best or score > best[slot][0]:
+                    best[slot] = (score, uid)
+        return {uid for _, uid in best.values()}
 
     def toggle_selected(self):
         # 操作前重读，防止定时刷新间隙里装备已变动。

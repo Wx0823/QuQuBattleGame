@@ -100,7 +100,7 @@ class EquipmentPanel(CardPanel):
         self.btn_action.clicked.connect(self._on_action)
         right.addWidget(self.btn_action)
         body.addLayout(right, 3)
-        root.addWidget(self._label("绿箭头：属性提升且无下降 · 金角标：已穿戴 · 战斗换装下场生效"))
+        root.addWidget(self._label("绿箭头：每部位最佳无损提升 · 金角标：已穿戴 · 战斗换装下场生效"))
         self._poll = QTimer(self)
         self._poll.setInterval(1000)
         self._poll.timeout.connect(self._poll_refresh)

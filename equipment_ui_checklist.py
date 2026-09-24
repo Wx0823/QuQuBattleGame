@@ -17,6 +17,36 @@ from stats import StatsDB
 
 
 class EquipmentUITests(unittest.TestCase):
+    def test_only_best_upgrade_per_slot_independent_of_filters(self):
+        old = self.item(value=9.4)
+        weaker = self.item(value=10.3)
+        best = self.item(value=11.4)
+        other = self.item(slot=self.db.data['_装备部位顺序'][1], value=12)
+        equipment.equip(old)
+        self.panel.refresh()
+        self.assertEqual(self.panel.model.upgrades(), {best, other})
+        self.panel.model.sort = 'quality'
+        self.panel.model.slot_filter = self.db.data['_装备部位顺序'][0]
+        self.assertEqual(self.panel.model.upgrades(), {best, other})
+        self.assertNotIn(weaker, self.panel.model.upgrades())
+        equipment.equip(best)
+        self.panel.refresh()
+        self.assertEqual(self.panel.model.upgrades(), {other})
+
+    def test_equal_upgrades_choose_quality_then_stable_uid(self):
+        self.item(value=12)
+        quality = self.db.data['_装备品质顺序'][1]
+        first = self.item(quality=quality, value=12)
+        self.item(quality=quality, value=12)
+        self.panel.refresh()
+        self.assertEqual(self.panel.model.upgrades(), {first})
+        # 改变字典顺序仍指向同一件，刷新时不跳动。
+        self.panel.model.inventory['items'] = dict(reversed(list(self.panel.model.items.items())))
+        self.assertEqual(self.panel.model.upgrades(), {first})
+        equipment.equip(first)
+        self.panel.refresh()
+        self.assertFalse(self.panel.model.upgrades())
+
     def test_upgrade_arrow_follows_equipment_changes(self):
         old = self.item(value=10)
         better = self.item(value=10.2)
