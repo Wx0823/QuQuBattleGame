@@ -30,10 +30,15 @@ class GameplayTests(unittest.TestCase):
         for zoom in (.6, 1., 2.):
             self.pet.set_zoom(zoom)
             for button in (self.pet.btn_attr, self.pet.btn_dungeon):
-                self.assertGreater(button.y(), (main.TOP_PAD+main.FOOT_Y)*zoom)
+                self.assertGreater(button.x(), (main.CX+75)*zoom)
+                self.assertLess(button.geometry().bottom(), (main.TOP_PAD+main.FOOT_Y)*zoom)
                 self.assertTrue(self.pet.rect().contains(button.geometry()))
                 self.assertTrue(self.pet.mask().contains(button.geometry().center()))
             self.assertFalse(self.pet.btn_attr.geometry().intersects(self.pet.btn_dungeon.geometry()))
+            ground = self.pet._grass_rect(zoom)
+            pix = sprite('grass')
+            self.assertAlmostEqual(ground.width()/ground.height(), pix.width()/pix.height())
+            self.assertEqual(self.pet.btn_attr.y(), self.pet.btn_dungeon.y())
         self.pet.settings.show_bar = False
         self.pet._update_mask()
         self.assertTrue(self.pet.mask().contains(self.pet.btn_attr.geometry().center()))

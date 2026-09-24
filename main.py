@@ -39,9 +39,9 @@ from persistence import write_json
 
 # 基准尺寸，实际显示尺寸 = 基准 × 缩放（设置面板可调）
 # 顶部多留 TOP_PAD：经验飘字往上升，没这块会被 setMask 裁掉上半截
-WIN_W, WIN_H = 240, 240
+WIN_W, WIN_H = 360, 210
 TOP_PAD = 16
-CX = 120.0
+CX = 110.0
 FOOT_Y = 155.0
 SCALE = 1.3
 
@@ -186,14 +186,15 @@ class Pet(QWidget):
             # 挂机模式：「装备」「副本」（随缩放走）
             self.btn_equip_b.hide()
             self.btn_desktop.hide()
-            bw = max(48, min(72, int(58 * self.zoom)))
-            bh = max(24, min(32, int(28 * self.zoom)))
+            bw = max(44, min(116, int(58 * self.zoom)))
+            bh = max(24, min(48, int(24 * self.zoom)))
             self.btn_attr.setFixedSize(bw, bh)
             self.btn_dungeon.setFixedSize(bw, bh)
-            bx = max(0, (self.width() - 2*bw - 6)//2)
-            self.btn_attr.move(bx, int((TOP_PAD + 174) * self.zoom))
+            bx = self.width() - 2*bw - 6 - int(8*self.zoom)
+            by = int((TOP_PAD+FOOT_Y-10)*self.zoom) - bh
+            self.btn_attr.move(bx, by)
             self.btn_attr.show()
-            self.btn_dungeon.move(bx + bw + 6, int((TOP_PAD + 174) * self.zoom))
+            self.btn_dungeon.move(bx + bw + 6, by)
             self.btn_dungeon.show()
 
     def _toggle_equipment_panel(self) -> None:
@@ -255,8 +256,8 @@ class Pet(QWidget):
         region = region.united(
             QRegion(int(32 * f), int((36 + TOP_PAD) * f),
                     int(176 * f), int(128 * f)))
-        # 草地与内嵌按钮属于可交互区域；顶部经验条与等级保持同排。
-        region = region.united(QRegion(int(6*f), int((TOP_PAD+140)*f), int(228*f), int(84*f)))
+        # 草地属于可交互区域；右侧按钮单独合并，顶部经验条与等级保持同排。
+        region = region.united(QRegion(self._grass_rect(f).translated(0, TOP_PAD*f).toAlignedRect()))
         if self.settings.show_bar:
             region = region.united(QRegion(int(30*f), int((TOP_PAD+2)*f), int(180*f), int(24*f)))
         # 模式按钮也要在 mask 内，否则不渲染不可点
@@ -572,7 +573,7 @@ class Pet(QWidget):
             p.drawEllipse(QRectF(CX * f - gw / 2, (FOOT_Y - 96) * f, gw, 104 * f))
 
         from art_assets import sprite, draw_sprite
-        draw_sprite(p, sprite('grass'), QRectF(6*f, 140*f, 228*f, 76*f))
+        draw_sprite(p, sprite('grass'), self._grass_rect(f), keep_aspect=True)
         paint_cricket(p, CX * f, FOOT_Y * f, SCALE * f, self.cricket, self.palette)
 
         self._draw_floats(p, f)
@@ -595,6 +596,13 @@ class Pet(QWidget):
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
             p.setPen(QPen(c, 1.0))
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, text)
+
+    def _grass_rect(self, f):
+        from art_assets import sprite
+        grass = sprite('grass')
+        width = (WIN_W-12)*f
+        height = width*grass.height()/max(1, grass.width())
+        return QRectF(6*f, 144*f, width, height)
 
     def _draw_bar(self, p: QPainter, f: float) -> None:
         need = self.db.exp_need(self.level)

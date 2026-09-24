@@ -123,7 +123,7 @@ QuQuBattleGame/
 
 每次修改完成并验证后，整理版本说明、提交 commit、创建递增版本 tag，并推送提交和该标签到 origin。玩家存档与偏好不随代码发布。
 
-当前版本：`v0.6.12`，详见 [版本记录](CHANGELOG.md)。
+当前版本：`v0.6.13`，详见 [版本记录](CHANGELOG.md)。
 
 ```
 git commit -m "v0.2: 属性与状态条"
