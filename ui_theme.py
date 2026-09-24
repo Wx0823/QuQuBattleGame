@@ -57,6 +57,11 @@ def mode_icon(kind):
         points = [QPointF(3,3), QPointF(8,1), QPointF(13,3), QPointF(12,10), QPointF(8,14), QPointF(4,10), QPointF(3,3)]
         for a,b in zip(points,points[1:]): p.drawLine(a,b)
         p.drawLine(8,4,8,10)
+    elif kind == 'dungeon':
+        # 城门：与装备盾牌共用暖金线条。
+        p.drawLine(2,14,14,14)
+        p.drawPolyline([QPointF(3,14), QPointF(3,3), QPointF(6,3), QPointF(6,1), QPointF(10,1), QPointF(10,3), QPointF(13,3), QPointF(13,14)])
+        p.drawRoundedRect(QRectF(6,7,4,7), 2, 2)
     else:
         p.drawRoundedRect(QRectF(2,2,12,12), 2, 2)
         p.drawLine(5,5,11,5)

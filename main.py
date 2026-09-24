@@ -145,6 +145,7 @@ class Pet(QWidget):
         self.btn_attr.clicked.connect(self._toggle_equipment_panel)
 
         self.btn_dungeon = QPushButton("副本", self)
+        self.btn_dungeon.setIcon(mode_icon("dungeon"))
         self.btn_dungeon.setStyleSheet(css)
         self.btn_dungeon.setFixedSize(58, 28)
         self.btn_dungeon.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -190,11 +191,11 @@ class Pet(QWidget):
             bh = max(24, min(48, int(24 * self.zoom)))
             self.btn_attr.setFixedSize(bw, bh)
             self.btn_dungeon.setFixedSize(bw, bh)
-            bx = self.width() - 2*bw - 6 - int(8*self.zoom)
-            by = int((TOP_PAD+FOOT_Y-10)*self.zoom) - bh
+            bx = self.width() - bw - int(8*self.zoom)
+            by = int((TOP_PAD+FOOT_Y-10)*self.zoom) - 2*bh - 6
             self.btn_attr.move(bx, by)
             self.btn_attr.show()
-            self.btn_dungeon.move(bx + bw + 6, by)
+            self.btn_dungeon.move(bx, by + bh + 6)
             self.btn_dungeon.show()
 
     def _toggle_equipment_panel(self) -> None:
@@ -654,6 +655,23 @@ class Pet(QWidget):
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        delta = event.pos() - event.oldPos()
+        if delta.isNull():
+            return
+        for name in ('panel', 'settings_panel', 'equip_panel', 'dungeon_sel', 'arena_win'):
+            panel = getattr(self, name, None)
+            if panel is None or not panel.isVisible():
+                continue
+            target = panel.pos() + delta
+            screen = QApplication.screenAt(target + panel.rect().center()) or self.screen()
+            bounds = screen.availableGeometry()
+            target.setX(max(bounds.left(), min(target.x(), bounds.right()-panel.width()+1)))
+            target.setY(max(bounds.top(), min(target.y(), bounds.bottom()-panel.height()+1)))
+            panel.move(target)
+            # 装备页自身的 moveEvent 继续负责右侧背包的贴靠与边界处理。
 
     def mouseMoveEvent(self, event) -> None:
         if self._dragging and (event.buttons() & Qt.MouseButton.LeftButton):

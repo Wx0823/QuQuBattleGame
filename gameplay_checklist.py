@@ -38,10 +38,35 @@ class GameplayTests(unittest.TestCase):
             ground = self.pet._grass_rect(zoom)
             pix = sprite('grass')
             self.assertAlmostEqual(ground.width()/ground.height(), pix.width()/pix.height())
-            self.assertEqual(self.pet.btn_attr.y(), self.pet.btn_dungeon.y())
+            self.assertEqual(self.pet.btn_attr.x(), self.pet.btn_dungeon.x())
+            self.assertEqual(self.pet.btn_dungeon.y(), self.pet.btn_attr.y()+self.pet.btn_attr.height()+6)
+            self.assertEqual(self.pet.btn_attr.width(), max(44, min(116, int(58*zoom))))
+            self.assertEqual(self.pet.btn_attr.height(), max(24, min(48, int(24*zoom))))
+            self.assertFalse(self.pet.btn_dungeon.icon().isNull())
         self.pet.settings.show_bar = False
         self.pet._update_mask()
         self.assertTrue(self.pet.mask().contains(self.pet.btn_attr.geometry().center()))
+
+    def test_open_windows_follow_pet_movement(self):
+        from PySide6.QtCore import QPoint
+        self.pet.show()
+        self.pet.move(10, 10)
+        self.pet._toggle_equipment_panel()
+        equipment_panel = self.pet.equip_panel
+        self.pet.settings_panel.show()
+        equipment_panel.move(10, 10)
+        self.pet.settings_panel.move(10, 10)
+        self.app.processEvents()
+        before = [p.pos() for p in (equipment_panel, self.pet.settings_panel)]
+        self.pet.move(self.pet.pos()+QPoint(12, 9))
+        self.app.processEvents()
+        for panel, old in zip((equipment_panel, self.pet.settings_panel), before):
+            self.assertEqual(panel.pos(), old+QPoint(12, 9))
+        self.pet.settings_panel.hide()
+        hidden_pos = self.pet.settings_panel.pos()
+        self.pet.move(self.pet.pos()+QPoint(12, 9))
+        self.app.processEvents()
+        self.assertEqual(self.pet.settings_panel.pos(), hidden_pos)
 
     def test_context_menu_refreshes_state_and_routes_actions(self):
         from menu_ui import create_menu
