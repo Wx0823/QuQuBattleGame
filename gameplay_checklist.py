@@ -24,6 +24,28 @@ from test_support import isolated_game_data
 
 
 class GameplayTests(unittest.TestCase):
+    def test_context_menu_refreshes_state_and_routes_actions(self):
+        from menu_ui import create_menu
+        menu = create_menu(self.pet)
+        try:
+            with patch.object(self.pet, '_toggle_settings') as settings_action:
+                menu.aboutToShow.emit()
+                actions = {a.text(): a for a in menu.actions()}
+                self.assertIn('挑战副本', actions)
+                actions['蛐蛐设置'].trigger()
+                settings_action.assert_called_once()
+            self.pet.begin_desktop_battle('d01')
+            menu.aboutToShow.emit()
+            actions = {a.text(): a for a in menu.actions()}
+            self.assertNotIn('挑战副本', actions)
+            self.assertIn('蛐蛐装备', actions)
+            actions['撤出副本 · 保存进度'].trigger()
+            self.assertIsNone(self.pet._stage)
+            menu.aboutToShow.emit()
+            self.assertEqual(sum(a.text() == '蛐蛐设置' for a in menu.actions()), 1)
+        finally:
+            menu.deleteLater()
+
     def test_desktop_clear_auto_enters_next_difficulty_and_stops_at_last(self):
         self.pet.begin_desktop_battle('d01')
         stage = self.pet._stage

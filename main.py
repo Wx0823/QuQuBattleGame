@@ -277,25 +277,8 @@ class Pet(QWidget):
 
     def _init_tray(self) -> None:
         self.tray = QSystemTrayIcon(_make_icon(), self)
-        menu = QMenu()
-        menu.setFont(QFont("Microsoft YaHei", 9))
-        act_fight = QAction("发起对战", self)
-        act_fight.triggered.connect(self._open_arena)
-        act_dungeon = QAction("挑战副本", self)
-        act_dungeon.triggered.connect(self._open_dungeon_select)
-        act_attr = QAction("蛐蛐装备", self)
-        act_attr.triggered.connect(self._toggle_equipment_panel)
-        act_cfg = QAction("蛐蛐设置", self)
-        act_cfg.triggered.connect(self._toggle_settings)
-        act_quit = QAction("退出游戏", self)
-        act_quit.triggered.connect(self._quit)
-        menu.addAction(act_dungeon)
-        menu.addAction(act_fight)
-        menu.addSeparator()
-        menu.addAction(act_attr)
-        menu.addAction(act_cfg)
-        menu.addSeparator()
-        menu.addAction(act_quit)
+        from menu_ui import create_menu
+        menu = create_menu(self)
         self.tray.setContextMenu(menu)
         self.tray.setToolTip("电子斗蛐蛐")
         self.tray.show()
@@ -687,46 +670,19 @@ class Pet(QWidget):
         super().mouseReleaseEvent(event)
 
     def _show_menu(self) -> None:
-        """右键菜单。副本进行中切换为副本菜单。"""
-        if self._stage is not None:
-            menu = QMenu()
-            menu.setFont(QFont("Microsoft YaHei", 9))
-            act_quit_d = QAction("撤出副本（进度保存）", self)
-            act_quit_d.triggered.connect(self.end_desktop_battle)
-            act_quit = QAction("退出游戏", self)
-            act_quit.triggered.connect(self._quit)
-            menu.addAction(act_quit_d)
-            menu.addSeparator()
-            menu.addAction(act_quit)
-            menu.exec(QCursor.pos())
-            return
-        # 防重入：0.4 秒内只弹一次（连点右键不会疯狂闪菜单）
+        """右键抬起后显示统一菜单，关闭后释放临时动作与控件。"""
         now = time.monotonic()
         if now - self._menu_t < 0.4:
             return
-        if not self.geometry().contains(QCursor.pos()):
+        if self._stage is None and not self.geometry().contains(QCursor.pos()):
             return
         self._menu_t = now
-        menu = QMenu()
-        menu.setFont(QFont("Microsoft YaHei", 9))
-        act_fight = QAction("发起对战", self)
-        act_fight.triggered.connect(self._open_arena)
-        act_dungeon = QAction("挑战副本", self)
-        act_dungeon.triggered.connect(self._open_dungeon_select)
-        act_attr = QAction("蛐蛐装备", self)
-        act_attr.triggered.connect(self._toggle_equipment_panel)
-        act_cfg = QAction("蛐蛐设置", self)
-        act_cfg.triggered.connect(self._toggle_settings)
-        act_quit = QAction("退出游戏", self)
-        act_quit.triggered.connect(self._quit)
-        menu.addAction(act_dungeon)
-        menu.addAction(act_fight)
-        menu.addSeparator()
-        menu.addAction(act_attr)
-        menu.addAction(act_cfg)
-        menu.addSeparator()
-        menu.addAction(act_quit)
-        menu.exec(QCursor.pos())
+        from menu_ui import create_menu
+        menu = create_menu(self)
+        try:
+            menu.exec(QCursor.pos())
+        finally:
+            menu.deleteLater()
 
     def _open_arena(self) -> None:
         """打开竞技场：自动观战，赢了给蛐蛐加经验。"""

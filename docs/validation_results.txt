@@ -1,4 +1,4 @@
-Syntax: 32 Python files PASS
+Syntax: 33 Python files PASS
 
 === battle_checklist.py (exit 0) ===
 == 战斗系统自检 ==
@@ -49,6 +49,7 @@ test_battle_end_is_last_event (__main__.GameplayTests.test_battle_end_is_last_ev
 test_battle_settings_do_not_resize_or_mask_field (__main__.GameplayTests.test_battle_settings_do_not_resize_or_mask_field) ... ok
 test_completed_callback_cannot_close_new_dungeon (__main__.GameplayTests.test_completed_callback_cannot_close_new_dungeon) ... ok
 test_conditional_talent_reacts_to_current_hp (__main__.GameplayTests.test_conditional_talent_reacts_to_current_hp) ... ok
+test_context_menu_refreshes_state_and_routes_actions (__main__.GameplayTests.test_context_menu_refreshes_state_and_routes_actions) ... ok
 test_desktop_clear_auto_enters_next_difficulty_and_stops_at_last (__main__.GameplayTests.test_desktop_clear_auto_enters_next_difficulty_and_stops_at_last) ... ok
 test_dungeon_resume_keeps_roster_and_rng (__main__.GameplayTests.test_dungeon_resume_keeps_roster_and_rng) ... ok
 test_entry_heading_matches_motion_for_both_hosts (__main__.GameplayTests.test_entry_heading_matches_motion_for_both_hosts) ... ok
@@ -76,7 +77,7 @@ test_toughness_reduces_incoming_crit (__main__.GameplayTests.test_toughness_redu
 test_zero_drop_and_highest_quality_do_not_lie (__main__.GameplayTests.test_zero_drop_and_highest_quality_do_not_lie) ... ok
 
 ----------------------------------------------------------------------
-Ran 31 tests in 2.786s
+Ran 32 tests in 2.935s
 
 OK
 
@@ -88,7 +89,7 @@ test_saved_species_wins_over_stale_settings (__main__.SpeciesPersistenceTests.te
 test_ui_switch_is_saved_immediately_and_survives_restart (__main__.SpeciesPersistenceTests.test_ui_switch_is_saved_immediately_and_survives_restart) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.120s
+Ran 4 tests in 0.114s
 
 OK
 
@@ -106,7 +107,7 @@ test_upgrade_arrow_follows_equipment_changes (__main__.EquipmentUITests.test_upg
 test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot (__main__.EquipmentUITests.test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot) ... ok
 
 ----------------------------------------------------------------------
-Ran 10 tests in 0.731s
+Ran 10 tests in 0.722s
 
 OK
 
@@ -121,6 +122,6 @@ test_ko_preserves_painted_body (__main__.ArtTests.test_ko_preserves_painted_body
 test_painter_state_and_opacity (__main__.ArtTests.test_painter_state_and_opacity) ... ok
 
 ----------------------------------------------------------------------
-Ran 7 tests in 0.233s
+Ran 7 tests in 0.250s
 
 OK
