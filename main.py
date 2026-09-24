@@ -35,6 +35,7 @@ from panel import StatsPanel
 from settings import Settings, SettingsPanel
 from stage import FIELD_W as FIELD_W_UI
 from stats import StatsDB
+from persistence import write_json
 
 # 基准尺寸，实际显示尺寸 = 基准 × 缩放（设置面板可调）
 # 顶部多留 TOP_PAD：经验飘字往上升，没这块会被 setMask 裁掉上半截
@@ -101,6 +102,17 @@ class Pet(QWidget):
         self._panel_t = 0.0
 
         self._load()
+        self.level = max(1, min(self.level, self.db.max_level))
+        self.xp = max(0, self.xp)
+        if self.level == self.db.max_level:
+            self.xp = min(self.xp, self.db.exp_need(self.level))
+        # 品种属于角色存档；设置中仅保留兼容旧版本的副本。
+        if not self.db.species(self.species_id):
+            ids = self.db.species_ids()
+            self.species_id = ids[0] if ids else "c001"
+        if self.settings.species_id != self.species_id:
+            self.settings.species_id = self.species_id
+            self.settings.save()
         self.recompute()  # 读档后按存档的品种/等级重算
         self._make_mode_buttons()
         self._init_window()
@@ -118,41 +130,38 @@ class Pet(QWidget):
     # ---------- 模式切换按钮 ----------
 
     def _make_mode_buttons(self) -> None:
-        """挂机：「属性」「副本」；副本战场：「装备」「桌面」。"""
+        """挂机：「装备」「副本」；副本战场：「装备」「桌面」。"""
         from PySide6.QtWidgets import QPushButton
-        css = ("QPushButton{color:#E8EDF2; background:rgba(0,0,0,120);"
-               "border:1px solid rgba(255,255,255,70); border-radius:8px;"
-               "font-size:11px;}"
-               "QPushButton:hover{background:rgba(143,209,79,150);"
-               "border-color:rgba(143,209,79,200);}")
-        css_gold = ("QPushButton{color:#1E2430; background:rgba(250,199,117,220);"
-                    "border:none; border-radius:8px; font-size:11px;}"
-                    "QPushButton:hover{background:rgba(250,199,117,255);}")
+        from ui_theme import button_css, mode_icon
+        css = button_css(compact=True)
+        css_gold = button_css(primary=True, compact=True)
 
-        self.btn_attr = QPushButton("属性", self)
+        self.btn_attr = QPushButton("装备", self)
+        self.btn_attr.setIcon(mode_icon("equipment"))
         self.btn_attr.setStyleSheet(css)
-        self.btn_attr.setFixedSize(40, 18)
+        self.btn_attr.setFixedSize(58, 28)
         self.btn_attr.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_attr.setToolTip("蛐蛐属性 · 装备")
+        self.btn_attr.setToolTip("装备管理 · 属性总览")
         self.btn_attr.clicked.connect(self._toggle_equipment_panel)
 
         self.btn_dungeon = QPushButton("副本", self)
         self.btn_dungeon.setStyleSheet(css)
-        self.btn_dungeon.setFixedSize(40, 18)
+        self.btn_dungeon.setFixedSize(58, 28)
         self.btn_dungeon.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_dungeon.setToolTip("直进当前可挑战的副本（右键菜单可选难度）")
         self.btn_dungeon.clicked.connect(self._quick_enter_dungeon)
 
         self.btn_equip_b = QPushButton("装备", self)
+        self.btn_equip_b.setIcon(mode_icon("equipment"))
         self.btn_equip_b.setStyleSheet(css)
-        self.btn_equip_b.setFixedSize(40, 18)
+        self.btn_equip_b.setFixedSize(58, 28)
         self.btn_equip_b.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_equip_b.setToolTip("战斗中可更换装备，本场结束后生效")
         self.btn_equip_b.clicked.connect(self._toggle_equipment_panel)
 
         self.btn_desktop = QPushButton("桌面", self)
         self.btn_desktop.setStyleSheet(css_gold)
-        self.btn_desktop.setFixedSize(40, 18)
+        self.btn_desktop.setFixedSize(58, 28)
         self.btn_desktop.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_desktop.setToolTip("退回挂机模式（进度保存）")
         self.btn_desktop.clicked.connect(self.end_desktop_battle)
@@ -166,17 +175,25 @@ class Pet(QWidget):
             # 副本战场：「装备」「桌面」
             self.btn_attr.hide()
             self.btn_dungeon.hide()
-            self.btn_equip_b.move(FIELD_W_UI - 98, 10)
+            from ui_theme import dungeon_hud_rect, BADGE_W, TOOL_W, TOOL_GAP
+            hud = dungeon_hud_rect(self._stage.cx)
+            bx = int(hud.left() + BADGE_W + 12)
+            self.btn_equip_b.move(bx, 17)
             self.btn_equip_b.show()
-            self.btn_desktop.move(FIELD_W_UI - 52, 10)
+            self.btn_desktop.move(bx + TOOL_W + TOOL_GAP, 17)
             self.btn_desktop.show()
         else:
-            # 挂机模式：「属性」「副本」（随缩放走）
+            # 挂机模式：「装备」「副本」（随缩放走）
             self.btn_equip_b.hide()
             self.btn_desktop.hide()
-            self.btn_attr.move(int((WIN_W - 92) * self.zoom), int(8 * self.zoom))
+            bw = max(48, min(72, int(58 * self.zoom)))
+            bh = max(24, min(32, int(28 * self.zoom)))
+            self.btn_attr.setFixedSize(bw, bh)
+            self.btn_dungeon.setFixedSize(bw, bh)
+            bx = max(0, (self.width() - 2*bw - 6)//2)
+            self.btn_attr.move(bx, int(8 * self.zoom))
             self.btn_attr.show()
-            self.btn_dungeon.move(int((WIN_W - 46) * self.zoom), int(8 * self.zoom))
+            self.btn_dungeon.move(bx + bw + 6, int(8 * self.zoom))
             self.btn_dungeon.show()
 
     def _toggle_equipment_panel(self) -> None:
@@ -221,6 +238,9 @@ class Pet(QWidget):
         mask 之外（窗口的透明区域）事件照旧穿透到桌面，不挡图标；
         mask 之内事件归窗口，右键不会再漏给系统菜单。
         """
+        if self._stage is not None:
+            self.clearMask()
+            return
         f = self.zoom
         # 飘字带：从窗口顶到蛐蛐头顶，保证 "+12" 这类数字完整显示
         region = QRegion(int(16 * f), 0, int(164 * f), int(70 * f))
@@ -241,15 +261,18 @@ class Pet(QWidget):
 
     def apply_zoom(self) -> None:
         """按缩放值调整窗口尺寸。"""
+        if self._stage is not None:
+            return  # 设置只影响挂机尺寸；退出副本时统一应用。
         f = self.zoom
         self.setFixedSize(max(60, int(WIN_W * f)), max(60, int(WIN_H * f)))
-        self._update_mask()
         self._place_mode_buttons()
+        self._update_mask()
         self._clamp_into_screen()
         self.update()
 
     def set_zoom(self, z: float) -> None:
         self.zoom = max(0.6, min(2.0, float(z)))
+        self.settings.zoom = self.zoom
         self.apply_zoom()
 
     def _init_tray(self) -> None:
@@ -260,8 +283,8 @@ class Pet(QWidget):
         act_fight.triggered.connect(self._open_arena)
         act_dungeon = QAction("挑战副本", self)
         act_dungeon.triggered.connect(self._open_dungeon_select)
-        act_attr = QAction("蛐蛐属性", self)
-        act_attr.triggered.connect(self._toggle_panel)
+        act_attr = QAction("蛐蛐装备", self)
+        act_attr.triggered.connect(self._toggle_equipment_panel)
         act_cfg = QAction("蛐蛐设置", self)
         act_cfg.triggered.connect(self._toggle_settings)
         act_quit = QAction("退出游戏", self)
@@ -300,12 +323,19 @@ class Pet(QWidget):
         self.stats, self._cond = self.db.compute(
             self.species_id, self.level, self.talents)
         sp = self.db.species(self.species_id) or {}
-        self.palette = palette_from_hex(str(sp.get("主色", "#6FA83C")))
+        self.palette = palette_from_hex(str(sp.get("主色", "#6FA83C")), self.species_id)
 
     def set_species(self, sid: str) -> None:
         if self.db.species(sid):
             self.species_id = sid
+            self.settings.species_id = sid
             self.recompute()
+            self.settings.save()
+            self.save()
+            panel = getattr(self, "settings_panel", None)
+            if panel is not None:
+                panel.sync_species()
+            self.update()
 
     # ---------- 桌面副本 ----------
 
@@ -335,19 +365,18 @@ class Pet(QWidget):
         stage._log(f"「{stage.drun.diff_name()}」副本通关！"
                    + ("（首通）" if first else ""))
         # 庆祝 4.5 秒后自动撤回挂机模式
-        QTimer.singleShot(4500, self._delayed_exit_battle)
+        QTimer.singleShot(4500, lambda: self._delayed_exit_battle(stage))
 
-    def _delayed_exit_battle(self) -> None:
-        if self._stage is not None and self._stage.dungeon_result is not None:
-            self.end_desktop_battle()
-        elif self._stage is not None and self._stage.drun is not None:
-            # 兜底：无论断点状态，通关演出结束后一律撤回挂机
+    def _delayed_exit_battle(self, completed_stage) -> None:
+        if self._stage is completed_stage and completed_stage.dungeon_result is not None:
             self.end_desktop_battle()
 
     def begin_desktop_battle(self, diff_id: str | None = None,
                              resume: bool = False) -> None:
         """副本直接在桌面上打：窗口临时扩为战场，蛐蛐原地迎战。"""
         from stage import BattleStage, FIELD_W, FIELD_H, FIELD_R
+        if self._stage is not None:
+            self.end_desktop_battle()
         old = getattr(self, "arena_win", None)
         if old is not None:
             old.close()
@@ -388,7 +417,7 @@ class Pet(QWidget):
             self.level = int(d.get("level", 1))
             self.xp = int(d.get("xp", 0))
             self.total_xp = int(d.get("total_xp", self.xp))
-            self.species_id = str(d.get("species_id", "c001"))
+            self.species_id = str(d.get("species_id", self.species_id))
             self.talents = list(d.get("talents", []))
             if d.get("x") is not None and d.get("y") is not None:
                 self._start_pos = (int(d["x"]), int(d["y"]))
@@ -396,20 +425,17 @@ class Pet(QWidget):
             self._start_pos = None
 
     def save(self) -> None:
+        position = self._battle_pos if self._stage is not None and self._battle_pos else (self.x(), self.y())
         data = {
             "level": self.level,
             "xp": self.xp,
             "total_xp": self.total_xp,
             "species_id": self.species_id,
             "talents": self.talents,
-            "x": self.x() if self.isVisible() else None,
-            "y": self.y() if self.isVisible() else None,
+            "x": position[0],
+            "y": position[1],
         }
-        try:
-            with open(SAVE_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        write_json(SAVE_FILE, data)
 
     def place_initial(self) -> None:
         if self._start_pos:
@@ -444,18 +470,21 @@ class Pet(QWidget):
         self._add_xp(XP_PER_CLICK)
 
     def _add_xp(self, n: int) -> None:
+        n = max(0, int(n))
         self.xp += n
         self.total_xp += n
         self._pending += n
         self._panel_dirty = True   # 属性面板若开着，由 _tick 节流刷新
         leveled = False
-        while self.xp >= self.db.exp_need(self.level):
+        while self.level < self.db.max_level and self.xp >= self.db.exp_need(self.level):
             self.xp -= self.db.exp_need(self.level)
             self.level += 1
             leveled = True
             self.levelup_t = 1.8
             self.cricket.level_up()
             self.floats.append(["升级!", 0.0, 0.0, 1.8, 1.8, QColor("#F2B233")])
+        if self.level == self.db.max_level:
+            self.xp = min(self.xp, self.db.exp_need(self.level))
         if leveled:
             self.recompute()
             self._panel_dirty = True
@@ -464,8 +493,16 @@ class Pet(QWidget):
 
     def _tick(self) -> None:
         dt = 0.016
+        self._panel_t += dt
+        if (self._panel_dirty and self._panel_t >= .3
+                and self.panel is not None and self.panel.isVisible()):
+            self.panel.refresh()
+            self._panel_dirty = False
+            self._panel_t = 0.0
         # 桌面副本进行中：驱动战斗舞台，蛐蛐挂机绘制暂停
         if self._stage is not None:
+            if self._dragging and not (QApplication.mouseButtons() & Qt.MouseButton.LeftButton):
+                self._dragging = False
             if self._dragging and self._offset is not None:
                 self.move(QCursor.pos() - self._offset)
             self._stage.update(dt)
@@ -496,13 +533,6 @@ class Pet(QWidget):
             self._pending_t = 0.0
 
         # 属性面板开着时同步经验/等级（0.3s 节流，避免打字时每键重刷整块面板）
-        self._panel_t += dt
-        if (self._panel_dirty and self._panel_t >= 0.3
-                and self.panel is not None and self.panel.isVisible()):
-            self.panel.refresh()
-            self._panel_dirty = False
-            self._panel_t = 0.0
-
         for f in self.floats:
             f[2] += 34 * dt
             f[3] -= dt
@@ -674,8 +704,8 @@ class Pet(QWidget):
         act_fight.triggered.connect(self._open_arena)
         act_dungeon = QAction("挑战副本", self)
         act_dungeon.triggered.connect(self._open_dungeon_select)
-        act_attr = QAction("蛐蛐属性", self)
-        act_attr.triggered.connect(self._toggle_panel)
+        act_attr = QAction("蛐蛐装备", self)
+        act_attr.triggered.connect(self._toggle_equipment_panel)
         act_cfg = QAction("蛐蛐设置", self)
         act_cfg.triggered.connect(self._toggle_settings)
         act_quit = QAction("退出游戏", self)
@@ -755,18 +785,56 @@ class Pet(QWidget):
         self.move(nx, ny)
 
     def _reset(self) -> None:
+        from dungeon import DungeonRun
+        # 先废弃活跃战局，避免退出/延迟回调把旧断点或奖励写回来。
+        if self._stage is not None:
+            self._stage.discard()
+            self.end_desktop_battle()
+        arena = getattr(self, 'arena_win', None)
+        if arena is not None:
+            arena.stage.discard()
+            arena.close()
+            self.arena_win = None
+        sel = getattr(self, 'dungeon_sel', None)
+        if sel is not None:
+            sel.hide()
+            sel.deleteLater()
+            self.dungeon_sel = None
+        DungeonRun.reset_progress()
         self.level, self.xp, self.total_xp = 1, 0, 0
         self.floats.clear()
+        self._pending = 0
+        self.levelup_t = 0
+        self.recompute()
+        self._panel_dirty = True
         self.save()
 
     def _quit(self) -> None:
-        self.save()
+        self._shutdown()
         QApplication.quit()
 
-    def closeEvent(self, event) -> None:
+    def _shutdown(self) -> None:
+        if getattr(self, '_stopped', False):
+            return
         if self._stage is not None:
-            self._stage.on_exit()   # 副本断点保存
+            self._stage.on_exit()
+        arena = getattr(self, 'arena_win', None)
+        if arena is not None:
+            arena.close()
         self.save()
+        self._stopped = True
+        self.timer.stop()
+        for name in ('kb', 'ms'):
+            listener = getattr(self, name, None)
+            if listener is not None:
+                listener.stop()
+        for name in ('panel', 'settings_panel', 'equip_panel', 'dungeon_sel'):
+            panel = getattr(self, name, None)
+            if panel is not None:
+                panel.hide()
+
+    def closeEvent(self, event) -> None:
+        self._shutdown()
         super().closeEvent(event)
 
 
@@ -811,6 +879,7 @@ def main() -> None:
         sys.exit(0)
 
     pet = Pet()
+    app.aboutToQuit.connect(pet._shutdown)
     pet.place_initial()
     pet.show()
     sys.exit(app.exec())

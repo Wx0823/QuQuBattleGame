@@ -114,7 +114,7 @@ def _stroke(p: QPainter, path: QPainterPath, color: QColor, width: float) -> Non
     p.drawPath(path)
 
 
-def palette_from_hex(main_hex: str) -> dict:
+def palette_from_hex(main_hex: str, species_id: str | None = None) -> dict:
     """由品种主色生成一套配色：亮部 / 本体 / 暗部 / 腹部亮面。
 
     主色来自数值表「2-品种」的 主色 列，所以换品种就换配色。
@@ -124,6 +124,7 @@ def palette_from_hex(main_hex: str) -> dict:
         base = QColor("#6FA83C")
     h, s, v, _a = base.getHsv()
     return {
+        "species_id": species_id,
         "hi": QColor.fromHsv(h, max(0, s - 40), min(255, v + 45)),
         "body": base,
         "dk": QColor.fromHsv(h, min(255, s + 30), max(0, int(v * 0.62))),
@@ -131,10 +132,13 @@ def palette_from_hex(main_hex: str) -> dict:
     }
 
 
-DEFAULT_PALETTE = palette_from_hex("#6FA83C")
+DEFAULT_PALETTE = palette_from_hex("#6FA83C", "c001")
 
 
 def _draw_body(p: QPainter, c: Cricket, pal: dict) -> None:
+    from cricket_art import side_body
+    if side_body(p, c, pal):
+        return
     sway = math.sin(c.t * 1.8) * 4.0
     hi, body, dk, belly = pal["hi"], pal["body"], pal["dk"], pal["belly"]
 
@@ -266,6 +270,9 @@ def paint_cricket_top(p: QPainter, x: float, y: float, angle_deg: float,
     flip_y: 1=背面朝上；-1=被掀翻肚皮朝上（KO 用），配合反色 palette。
     """
     pal = palette or DEFAULT_PALETTE
+    from cricket_art import top_body
+    if top_body(p, x, y, angle_deg, scale, c, pal, opacity, ant_lift, flip_y):
+        return
     hi, body, dk, belly = pal["hi"], pal["body"], pal["dk"], pal["belly"]
     lift = max(0.0, min(1.0, ant_lift))
     ant_len = 1.0 - 0.45 * lift          # 近身收须

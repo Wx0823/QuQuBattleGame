@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import random
+from persistence import write_json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INV_PATH = os.path.join(HERE, "data", "inventory.json")
@@ -25,18 +26,19 @@ UPGRADE_CHANCE = 0.03   # 词条按高 1 档品质生成的概率
 def _read_inv() -> dict:
     try:
         with open(INV_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError('背包根节点必须为对象')
+        data.setdefault('items', {})
+        data.setdefault('equipped', {})
+        data.setdefault('next_uid', 1)
+        return data
     except Exception:
         return {"items": {}, "equipped": {}, "next_uid": 1}
 
 
 def _write_inv(data: dict) -> None:
-    os.makedirs(os.path.dirname(INV_PATH), exist_ok=True)
-    try:
-        with open(INV_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    write_json(INV_PATH, data)
 
 
 def load_inventory() -> dict:
@@ -72,7 +74,9 @@ def quality_order(db) -> list:
 def make_item(db, rng: random.Random, diff_id: str) -> dict:
     """按难度掷一次装备掉落，返回装备实例 dict。"""
     conf = db.data["副本难度"].get(diff_id, {})
-    if rng.uniform(0, 100) > float(conf.get("装备掉落概率", 20) or 20):
+    chance = conf.get("装备掉落概率", 20)
+    chance = 20 if chance is None else float(chance)
+    if chance <= 0 or rng.uniform(0, 100) >= chance:
         return {}
 
     # 品质：按难度权重
@@ -83,7 +87,8 @@ def make_item(db, rng: random.Random, diff_id: str) -> dict:
         if not part or ":" not in part:
             continue
         qid, w = part.split(":", 1)
-        pairs.append((qid.strip(), float(w)))
+        if qid.strip() in db.data.get('装备品质', {}) and float(w) > 0:
+            pairs.append((qid.strip(), float(w)))
     if not pairs:
         return {}
     quality_id = _weighted_choice(rng, pairs)
@@ -119,8 +124,10 @@ def make_item(db, rng: random.Random, diff_id: str) -> dict:
         upgrade = rng.uniform(0, 100) < UPGRADE_CHANCE * 100
         if upgrade:
             idx = order.index(quality_id) if quality_id in order else -1
-            if 0 <= idx + 1 < len(order):
+            if 0 <= idx < len(order) - 1:
                 t = order[idx + 1]
+            else:
+                upgrade = False
         val = float(a.get("基础值", 1)) * tier_mult(db, t) \
             * rng.uniform(0.85, 1.25)
         val = max(1.0, round(val, 1))
@@ -167,6 +174,8 @@ def add_item(db, item: dict) -> str | None:
         return None
     data = _read_inv()
     uid = str(data.get("next_uid", 1))
+    while uid in data['items']:
+        uid = str(int(uid) + 1)
     data["next_uid"] = int(uid) + 1
     item["uid"] = uid
     item["名称"] = item_name(db, item)
@@ -215,12 +224,12 @@ def equipped_items() -> list:
 
 # ---------- 属性加成 ----------
 
-def bonus_stats(equipped: list | None = None) -> dict:
+def bonus_stats(equipped: list | None = None, db=None) -> dict:
     """穿戴中装备的词条合计。"""
     bonus: dict = {}
     for item in (equipped if equipped is not None else equipped_items()):
         for aff in item.get("affixes", []):
-            a = _read_affix(aff["id"])
+            a = db.data.get('装备词条', {}).get(aff['id'], {}) if db is not None else _read_affix(aff["id"])
             if not a:
                 continue
             attr = str(a.get("属性ID", ""))
@@ -244,16 +253,12 @@ def effective_stats(db, species_id: str, level: int,
     base, _cond = db.compute(species_id, level, talents or [])
     if equipped is None:
         equipped = equipped_items()
-    return apply_bonus(base, bonus_stats(equipped))
+    return apply_bonus(base, bonus_stats(equipped, db))
 
 
 def _read_affix(aid: str) -> dict:
-    # 延迟加载，避免测试环境反复读文件
-    global _AFFIX_CACHE
-    if _AFFIX_CACHE is None:
-        from stats import StatsDB
-        _AFFIX_CACHE = StatsDB().data.get("装备词条", {})
-    return _AFFIX_CACHE.get(aid, {})
+    from stats import StatsDB
+    return StatsDB().data.get('装备词条', {}).get(aid, {})
 
 
 _AFFIX_CACHE: dict | None = None

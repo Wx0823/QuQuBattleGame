@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-import json
+from persistence import write_json
 import os
 import sys
 
@@ -111,8 +111,7 @@ def export() -> dict:
     }
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(JSON_OUT, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=2)
+    write_json(JSON_OUT, out)
 
     print(f"\n已导出: {JSON_OUT}")
     print("总计: " + ", ".join(f"{k} {n}" for k, n in summary))

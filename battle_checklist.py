@@ -55,6 +55,8 @@ def run_battle(seed, la=None, ra=None, max_ticks=2000):
 
 
 def main() -> int:
+    RESULTS.clear()
+    random.seed(42)
     print("== 战斗系统自检 ==")
 
     # 1. 公式核验：护甲减伤与保底
@@ -204,10 +206,11 @@ def _arena_smoke() -> bool:
 
         from cricket import palette_from_hex
         pet = FakePet()
-        pet.palette = palette_from_hex("#6FA83C")
+        pet.palette = palette_from_hex("#6FA83C", pet.species_id)
 
         from arena import ArenaWindow
         win = ArenaWindow(pet)
+        win.timer.stop()
         for _ in range(2600):          # ≈78 秒，足够打完整场
             win._frame()
             if not win.result_box.isHidden():
@@ -228,7 +231,7 @@ def _arena_smoke() -> bool:
 
 def _level_from_xp(xp: int) -> int:
     lv = 1
-    while xp >= db.exp_need(lv) and lv < 300:
+    while xp >= db.exp_need(lv) and lv < db.max_level:
         xp -= db.exp_need(lv)
         lv += 1
     return lv
@@ -295,7 +298,7 @@ def sim_dungeon(diff_id: str, seed: int = 1) -> dict:
 
 
 def _stage_retry_smoke() -> bool:
-    """桌面舞台副本：把敌人血量改到打不死逼出一场败局，
+    """桌面舞台副本：通过真实伤害结算入口触发一次确定的击倒，
     验证战败后玩家 Fighter 被复活重建、尸体状态被清理。"""
     try:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -321,7 +324,12 @@ def _stage_retry_smoke() -> bool:
         for _k in range(6000):
             st.update(0.03)
             if phase == 0 and st.battle is not None:
-                st.f[1][0].hp = 10 ** 9      # 打不死的敌人 → 必败
+                # 无限敌方 HP 仍能被鸣叫逼退，并不能保证玩家失败。
+                events = []
+                player = st.f[0][0]
+                st.battle._lose_hp(player, player.hp, events)
+                for event in events:
+                    st._play(event)
                 phase = 1
             if (phase == 1 and st.battle is not None and st.battle.over
                     and st.battle.winner != 0):
@@ -394,4 +402,6 @@ def check_dungeon_curve() -> list[dict]:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from test_support import isolated_game_data
+    with isolated_game_data():
+        sys.exit(main())

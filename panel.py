@@ -15,12 +15,13 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QProgressBar,
 
 from cricket import paint_cricket
 from stats import StatsDB, fmt_num
+from ui_theme import draw_card, PANEL_CSS
 
 BG = QColor(26, 32, 42, 238)
 LINE = QColor(255, 255, 255, 28)
-TXT = "#E8EDF2"
-SUB = "#8B97A6"
-ACCENT = "#8FD14F"
+TXT = "#EEE6D6"
+SUB = "#AAA698"
+ACCENT = "#D6B778"
 FADE = "#55606E"
 
 
@@ -39,6 +40,7 @@ class CardPanel(QWidget):
         self.setWindowTitle(title)
         self._drag = None
         self._title_text = title
+        self.setStyleSheet(PANEL_CSS)
 
     def build_header(self, root: QVBoxLayout) -> None:
         head = QHBoxLayout()
@@ -47,8 +49,8 @@ class CardPanel(QWidget):
         t.setStyleSheet(f"color:{TXT}; font-size:15px; font-weight:600;")
         head.addWidget(t)
         head.addStretch()
-        btn = QPushButton("✕")
-        btn.setFixedSize(22, 22)
+        btn = QPushButton("×")
+        btn.setFixedSize(28, 28)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
             "QPushButton{color:#8B97A6; background:transparent; border:none; font-size:13px;}"
@@ -68,13 +70,8 @@ class CardPanel(QWidget):
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(BG)
         r = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
-        p.drawRoundedRect(r, 14, 14)
-        p.setPen(LINE)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(r, 14, 14)
+        draw_card(p, r, ornaments=True)
         p.end()
 
     def mousePressEvent(self, e) -> None:
@@ -93,10 +90,12 @@ class CardPanel(QWidget):
     def show_near(self, anchor: QWidget) -> None:
         """显示在蛐蛐旁边，默认左侧，放不下就放右侧。"""
         g = anchor.frameGeometry()
+        available = anchor.screen().availableGeometry()
         x = g.left() - self.width() - 12
-        if x < 0:
+        if x < available.left():
             x = g.right() + 12
-        y = max(0, min(g.bottom() - self.height(), g.top()))
+        x = max(available.left(), min(x, available.right()-self.width()+1))
+        y = max(available.top(), min(g.top(), available.bottom()-self.height()+1))
         self.move(x, y)
         self.show()
         self.raise_()

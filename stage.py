@@ -21,6 +21,9 @@ from cricket import Cricket, paint_cricket_top, palette_from_hex
 from dungeon import DungeonRun
 import equipment
 from stats import StatsDB, fmt_num
+from art_assets import draw_effect, draw_sprite, sprite
+from ui_theme import draw_card, dungeon_hud_rect, BADGE_W
+from loot_effects import LootEffects
 
 # 桌面模式的战场几何
 FIELD_W, FIELD_H = 660, 440
@@ -94,7 +97,7 @@ class BattleStage:
             sp = self.db.species(sid) or {}
             name = f"{sp.get('名称', '野蛐蛐')}·野"
             f = make_fighter(self.db, 1, name, sid, self.pet.level)
-            pal = palette_from_hex(str(sp.get("主色", "#6FA83C")))
+            pal = palette_from_hex(str(sp.get("主色", "#6FA83C")), sid)
         c = Cricket()
         c.act_next = 9999
         return f, c, pal
@@ -125,10 +128,11 @@ class BattleStage:
             ry = cy + math.sin(ang) * (r - 20)
             self._rim.append((rx, ry))
             self._start.append((x, y))
+            heading = math.degrees(math.atan2(y - ry, x - rx))
             self.ch.append({
                 "x": rx, "y": ry,
-                "hd": 0.0 if side == 0 else 180.0,
-                "thd": 0.0 if side == 0 else 180.0,
+                "hd": heading,
+                "thd": heading,
                 "wt": (x, y), "wt_t": 0.0,
                 "mode": "wander", "mode_t": 0.0,
                 "kn": [0.0, 0.0], "dash": None,
@@ -140,6 +144,7 @@ class BattleStage:
             "ko_anim": None, "grapple": None,
         }
         self.dust = []
+        self.loot_effects = LootEffects()
         self._last_hit = None
         self._pending_end = None
         self.log = [" waiting"]
@@ -176,12 +181,21 @@ class BattleStage:
         self._spawn_enemy()
 
     def _spawn_enemy(self) -> None:
+        # 新敌人不能继承上一只的击退、冲刺或死亡翻转。
+        self.ch[1].update(dash=None, kn=[0.0, 0.0], mode='wander', mode_t=0.0)
+        if self.fx['ko'] == 1:
+            self.fx['ko'] = None
+            self.fx['ko_anim'] = None
+        if self.fx['flee'] and self.fx['flee'][0] == 1:
+            self.fx['flee'] = None
+        self.fx['grapple'] = None
+        self.fx['guard'][1] = self.fx['flash'][1] = 0.0
         enemy = self.drun.make_enemy(self.drun.eidx)
         sp = self.db.species(enemy.species_id) or {}
         c = Cricket()
         c.act_next = 9999
         c.facing = c.facing_target = -1.0
-        self.f[1] = (enemy, c, palette_from_hex(str(sp.get("主色", "#6FA83C"))))
+        self.f[1] = (enemy, c, palette_from_hex(str(sp.get("主色", "#6FA83C")), enemy.species_id))
         self.ch[1]["x"], self.ch[1]["y"] = self._rim[1]
         self.ch[1]["thd"] = self.ch[1]["hd"] = math.degrees(
             math.atan2(self._start[1][1] - self._rim[1][1],
@@ -221,7 +235,11 @@ class BattleStage:
         self._log(msg)
 
     def _dungeon_advance(self) -> None:
-        e = self._pending_end or {}
+        if self._pending_end is None:
+            return
+        e = self._pending_end
+        self._pending_end = None
+        self.end_t = -1.0
         win = e.get("winner") == 0
         player = self.f[0][0]
         self._frac = [max(0.05, min(1.0, player.hp / player.hp_max)),
@@ -241,15 +259,11 @@ class BattleStage:
             self._rest(1.6, "敌方增援来袭！")
         elif r == "floor_clear":
             self._frac = [1.0, 1.0]
-            self._rest(2.4, f"第 {res.get('floor', '?')} 层攻克！休整完毕")
+            self._rest(2.4, f"第 {res['cleared_floor']} 层攻克！休整后进入第 {res['floor']} 层")
         elif r == "retry":
             self._rest(2.4, f"战败…退回第 {res.get('floor', 1)} 层，整备再战")
         elif r == "diff_clear":
-            DungeonRun.clear_run()
             self.dungeon_result = res
-            if self.on_diff_clear:
-                self.on_diff_clear(res)
-            return
         # 击败怪物 → 概率掉落装备（难度越高品质越好）
         if win:
             drop = equipment.make_item(self.db, random.Random(), self.drun.diff_id)
@@ -257,17 +271,33 @@ class BattleStage:
                 equipment.add_item(self.db, drop)
                 drop_name = equipment.item_name(self.db, drop)
                 qcolor = equipment.quality_color(self.db, drop)
-                self._float(f"掉落 {drop_name}!", 0, qcolor, -52)
+                self.loot_effects.add(self.db, drop, self.ch[1]['x'], self.ch[1]['y'])
                 self._log(f"击败 {self.f[1][0].name}，"
                           f"掉落「{drop_name}」！已放入背包")
+        if r == 'diff_clear':
+            DungeonRun.clear_run()
+            if self.on_diff_clear:
+                self.on_diff_clear(res)
+            return
         probe = self._make_player_fighter()
         self.drun.save(self._frac[0] * probe.hp_max,
                        self._frac[1] * probe.sta_max)
 
+    def discard(self) -> None:
+        """重置角色时废弃战局，不结算奖励、不保存旧断点。"""
+        self._discarded = True
+        self.loot_effects.clear()
+        self._pending_end = None
+        self.on_diff_clear = None
+        self.on_pvp_end = None
+
     def on_exit(self) -> None:
         """宿主关闭时保存断点。"""
-        if self.drun is None:
+        if getattr(self, '_discarded', False) or self.drun is None:
             return
+        # 结算动画期间退出也必须兑现本场奖励/失败回退，且只能兑现一次。
+        if self._pending_end is not None:
+            self._dungeon_advance()
         if self.battle is not None and not self.battle.over:
             player = self.f[0][0]
             self.drun.save(player.hp, player.sta)
@@ -279,7 +309,13 @@ class BattleStage:
     # ---------- 主循环 ----------
 
     def update(self, dt: float = 0.03) -> None:
+        if getattr(self, '_discarded', False) or dt <= 0:
+            return
         self._anim_t += dt
+        self.loot_effects.update(dt)
+        # 本帧由入场/休整编排接管；即使本帧结束入场，也不叠加战斗走位。
+        staging = self.intro_t > 0 or (self.drun is not None and (
+            self._enter is not None or self._rest_t > 0 or self.battle is None))
         if self.drun is not None:
             if self._rest_t > 0:
                 self._rest_t -= dt
@@ -295,7 +331,9 @@ class BattleStage:
                     (self._start[e["side"]][0] - self._rim[e["side"]][0]) * ease
                 ch["y"] = self._rim[e["side"]][1] + \
                     (self._start[e["side"]][1] - self._rim[e["side"]][1]) * ease
-                ch["thd"] = 180.0
+                sx, sy = self._start[e['side']]
+                rx, ry = self._rim[e['side']]
+                ch['hd'] = ch['thd'] = math.degrees(math.atan2(sy - ry, sx - rx))
                 c2 = self.f[e["side"]][1]
                 c2.move_amp = 0.7
                 c2.gait_phase += dt * 11.0
@@ -320,7 +358,7 @@ class BattleStage:
                 sx, sy = self._start[i]
                 ch["x"] = rx + (sx - rx) * ease
                 ch["y"] = ry + (sy - ry) * ease
-                ch["thd"] = math.degrees(math.atan2(sy - ry, sx - rx))
+                ch['hd'] = ch["thd"] = math.degrees(math.atan2(sy - ry, sx - rx))
                 c2 = self.f[i][1]
                 c2.move_amp = 0.65
                 c2.gait_phase += dt * 11.0
@@ -374,7 +412,8 @@ class BattleStage:
             a["y"] = my - uy * 40 - uy * shove
             b["x"] = mx + ux * 40 + ux * shove
             b["y"] = my + uy * 40 + uy * shove
-            a["thd"] = b["thd"] = math.degrees(math.atan2(uy, ux))
+            a["thd"] = math.degrees(math.atan2(uy, ux))
+            b["thd"] = a["thd"] + 180
             if k >= 1.0:
                 self.fx["grapple"] = None
                 for ch, sgn in ((a, -1.0), (b, 1.0)):
@@ -407,8 +446,10 @@ class BattleStage:
                     target = 1.0
                 c2.move_amp += (target - c2.move_amp) * min(1.0, dt * 9.0)
                 c2.gait_phase += dt * (4.0 + 14.0 * c2.move_amp)
-            self._choreo(i, dt)
-        self._separate()
+            if not staging:
+                self._choreo(i, dt)
+        if not staging:
+            self._separate()
 
     # ---------- 走位编排 ----------
 
@@ -688,6 +729,9 @@ class BattleStage:
             self.f[e["side"]][1].hop(95)
             self._log(f"{names[e['side']]} 缓过劲来，耐力回满！")
         elif t == "end":
+            self.fx['grapple'] = None
+            for ch in self.ch:
+                ch['dash'] = None
             self._pending_end = e
             self.end_t = 1.6
             w = e["winner"]
@@ -732,6 +776,7 @@ class BattleStage:
             if self.drun is not None:
                 self._draw_dungeon_badge(p)
         self._draw_floats(p)
+        self.loot_effects.draw(p, self.cx, 88 if self.style == 'desktop' else 68)
         if self.style == "arena":
             self._draw_log(p)
         if self.intro_t > 0 or (self.drun is None and self.intro_t > 0):
@@ -746,6 +791,8 @@ class BattleStage:
 
     def _draw_dish(self, p: QPainter) -> None:
         cx, cy, r = self.cx, self.cy, self.radius
+        if draw_sprite(p, sprite('arena'), QRectF(cx-r-18, cy-r-18, (r+18)*2, (r+18)*2)):
+            return
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(QColor(0, 0, 0, 110)))
         p.drawEllipse(QRectF(cx - r - 18, cy - r - 10,
@@ -776,7 +823,10 @@ class BattleStage:
 
     def _draw_dust(self, p: QPainter) -> None:
         """沙尘粒子：扑击/受击/角力/掀翻时扬起。"""
-        for x, y, _vx, _vy, life, mx in self.dust:
+        for index, (x, y, _vx, _vy, life, mx) in enumerate(self.dust):
+            if index % 3 == 0 and draw_effect(p, 2, x, y, 13 + 17*(1-life/mx),
+                                             .38*life/mx, index*37):
+                continue
             a = int(150 * (life / mx))
             r = 2.5 + 2.5 * (1.0 - life / mx)
             p.setPen(Qt.PenStyle.NoPen)
@@ -799,8 +849,9 @@ class BattleStage:
             k = min(1.0, self.fx["ko_anim"]["t"] / 0.6)
             spin = 540.0 * k
             flip = math.cos(k * math.pi)
-            if flip < 0:
-                pal = {"hi": pal["belly"], "body": pal["belly"],
+            if flip < 0 and not pal.get("species_id"):
+                pal = {"species_id": pal.get("species_id"),
+                       "hi": pal["belly"], "body": pal["belly"],
                        "dk": pal["dk"], "belly": pal["hi"]}
         fx_, fy_ = self._foe_pos(i)
         dist = math.hypot(fx_ - ch["x"], fy_ - ch["y"])
@@ -810,20 +861,18 @@ class BattleStage:
                           c, pal, opacity, ant_lift, flip)
 
         if self.fx["flash"][i] > 0:
-            a = int(150 * self.fx["flash"][i] / 0.22)
-            p.save()
-            p.translate(ch["x"], ch["y"])
-            p.rotate(ch["hd"])
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(QColor(255, 255, 255, a)))
-            p.drawEllipse(QRectF(-48, -26, 110, 52))
-            p.restore()
+            k = min(1.0, self.fx["flash"][i] / .22)
+            heading = math.radians(ch['hd'])
+            hx, hy = ch['x'] + math.cos(heading)*30, ch['y'] + math.sin(heading)*30
+            draw_effect(p, 0, hx, hy, 40 + (1-k)*26, k, ch['hd'])
+            draw_effect(p, 3, hx, hy, 82, k*.7, ch['hd'])
 
         if self.fx["guard"][i] > 0:
             k = min(1.0, self.fx["guard"][i] / 0.5)
             a = int(170 * k)
             pulse = 1.0 + 0.07 * math.sin(self._anim_t * 13.0)
             r = 46.0 * pulse
+            draw_effect(p, 1, ch['x'], ch['y'], 110*pulse, k*.85, ch['hd'])
             p.setPen(QPen(QColor(93, 202, 165, a), 3.0))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QRectF(ch["x"] - r, ch["y"] - r, r * 2, r * 2))
@@ -832,11 +881,6 @@ class BattleStage:
                 p.setFont(QFont("Microsoft YaHei", 8, QFont.Weight.DemiBold))
                 p.drawText(QRectF(ch["x"] - 52, ch["y"] - r - 20, 104, 16),
                            Qt.AlignmentFlag.AlignCenter, "格挡中")
-
-        if self.fx["ko"] == i:
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(QColor(40, 44, 52, 150)))
-            p.drawEllipse(QRectF(ch["x"] - 46, ch["y"] - 26, 96, 52))
 
     def _bar(self, p: QPainter, x: float, y: float, w: float, h: float,
              ratio: float, color: str, label: str | None,
@@ -923,7 +967,7 @@ class BattleStage:
     def _draw_dungeon_hud(self, p: QPainter) -> None:
         n = self.drun.n_enemies
         eidx = min(self.drun.eidx + 1, n)
-        prog = ((self.drun.floor - 1) * n + self.drun.eidx) / (20.0 * n)
+        prog = ((self.drun.floor - 1) * n + self.drun.eidx) / (float(self.drun.floors) * n)
         cx = WIN_ARENA_W / 2
         p.setPen(QPen(QColor("#E8EDF2")))
         p.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.DemiBold))
@@ -949,28 +993,24 @@ class BattleStage:
         """桌面模式：蛐蛐头顶的副本进度小徽章。"""
         n = self.drun.n_enemies
         eidx = min(self.drun.eidx + 1, n)
-        prog = ((self.drun.floor - 1) * n + self.drun.eidx) / (20.0 * n)
-        bw = 190
-        cx = FIELD_CX
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(0, 0, 0, 130)))
-        p.drawRoundedRect(QRectF(cx - bw / 2, 8, bw, 34), 9, 9)
-        p.setPen(QPen(QColor("#E8EDF2")))
+        prog = ((self.drun.floor - 1) * n + self.drun.eidx) / (float(self.drun.floors) * n)
+        hud = dungeon_hud_rect(self.cx)
+        draw_card(p, hud, radius=10)
+        x = hud.left() + 12
+        bw = BADGE_W - 12
+        p.setPen(QPen(QColor("#EEE6D6")))
         p.setFont(QFont("Microsoft YaHei", 9, QFont.Weight.DemiBold))
-        p.drawText(QRectF(cx - bw / 2, 11, bw, 16),
-                   Qt.AlignmentFlag.AlignCenter,
-                   f"{self.drun.diff_name()}  第 {self.drun.floor}/20 层 · 敌 {eidx}/{n}")
+        p.drawText(QRectF(x, 14, bw, 18), Qt.AlignmentFlag.AlignLeft,
+                   f"{self.drun.diff_name()}  第 {self.drun.floor}/{self.drun.floors} 层 · 敌 {eidx}/{n}")
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(255, 255, 255, 40)))
-        p.drawRoundedRect(QRectF(cx - bw / 2 + 8, 30, bw - 16, 6), 3, 3)
-        p.setBrush(QBrush(QColor("#FAC775")))
-        p.drawRoundedRect(QRectF(cx - bw / 2 + 8, 30,
-                                 max(6.0, (bw - 16) * max(0.0, min(1.0, prog))),
-                                 6), 3, 3)
+        p.setBrush(QColor('#414B42'))
+        p.drawRoundedRect(QRectF(x, 39, bw, 4), 2, 2)
+        p.setBrush(QColor('#D6B778'))
+        p.drawRoundedRect(QRectF(x, 39, max(4., bw * min(1., max(0., prog))), 4), 2, 2)
         if self._rest_t > 0:
             p.setPen(QPen(QColor("#FAC775")))
             p.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.DemiBold))
-            p.drawText(QRectF(cx - 140, FIELD_CY - self.radius - 34, 280, 22),
+            p.drawText(QRectF(self.cx - 180, hud.bottom() + 6, 360, 22),
                        Qt.AlignmentFlag.AlignCenter, self._rest_msg)
 
     def _draw_floats(self, p: QPainter) -> None:

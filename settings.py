@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel,
 
 from panel import CardPanel
 from stats import StatsDB
+from persistence import write_json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PATH = os.path.join(HERE, "data", "settings.json")
@@ -23,26 +24,26 @@ ZOOM_MIN, ZOOM_MAX = 60, 200  # 百分比
 
 SLIDER_CSS = """
 QSlider::groove:horizontal{height:4px; background:rgba(255,255,255,0.12); border-radius:2px;}
-QSlider::sub-page:horizontal{background:#8FD14F; border-radius:2px;}
-QSlider::handle:horizontal{width:14px; margin:-5px 0; background:#8FD14F;
+QSlider::sub-page:horizontal{background:#C8A76B; border-radius:2px;}
+QSlider::handle:horizontal{width:14px; margin:-5px 0; background:#C8A76B;
     border-radius:7px; border:none;}
 QSlider::handle:horizontal:hover{background:#A5E063;}
 """
 
 CHECK_CSS = """
-QCheckBox{color:#E8EDF2; font-size:12px; spacing:8px;}
+QCheckBox{color:#EEE6D6; font-size:12px; spacing:8px;}
 QCheckBox::indicator{width:16px; height:16px; border-radius:4px;
     border:1px solid rgba(255,255,255,0.28); background:transparent;}
-QCheckBox::indicator:checked{background:#8FD14F; border-color:#8FD14F;}
+QCheckBox::indicator:checked{background:#C8A76B; border-color:#C8A76B;}
 """
 
 COMBO_CSS = """
-QComboBox{color:#E8EDF2; background:rgba(255,255,255,0.06);
+QComboBox{color:#EEE6D6; background:rgba(255,255,255,0.06);
     border:1px solid rgba(255,255,255,0.12); border-radius:6px;
     padding:6px 10px; font-size:12px; min-width:120px;}
 QComboBox::drop-down{border:none; width:18px;}
-QComboBox QAbstractItemView{background:#1E2430; color:#E8EDF2;
-    selection-background-color:#8FD14F; selection-color:#1E2430;
+QComboBox QAbstractItemView{background:#1E2430; color:#EEE6D6;
+    selection-background-color:#C8A76B; selection-color:#1E2430;
     border:1px solid rgba(255,255,255,0.12);}
 """
 
@@ -63,7 +64,7 @@ class Settings:
         try:
             with open(PATH, "r", encoding="utf-8") as f:
                 d = json.load(f)
-            self.zoom = float(d.get("zoom", 1.0))
+            self.zoom = max(ZOOM_MIN/100, min(ZOOM_MAX/100, float(d.get("zoom", 1.0))))
             self.show_bar = bool(d.get("show_bar", True))
             self.always_top = bool(d.get("always_top", True))
             self.species_id = str(d.get("species_id", "c001"))
@@ -71,17 +72,8 @@ class Settings:
             pass
 
     def save(self) -> None:
-        try:
-            os.makedirs(os.path.dirname(PATH), exist_ok=True)
-            with open(PATH, "w", encoding="utf-8") as f:
-                json.dump({
-                    "zoom": self.zoom,
-                    "show_bar": self.show_bar,
-                    "always_top": self.always_top,
-                    "species_id": self.species_id,
-                }, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        write_json(PATH, {"zoom": self.zoom, "show_bar": self.show_bar,
+                          "always_top": self.always_top, "species_id": self.species_id})
 
 
 class SettingsPanel(CardPanel):
@@ -101,11 +93,11 @@ class SettingsPanel(CardPanel):
         # ---- 蛐蛐大小 ----
         row = QHBoxLayout()
         t = QLabel("蛐蛐大小")
-        t.setStyleSheet("color:#E8EDF2; font-size:12px;")
+        t.setStyleSheet("color:#EEE6D6; font-size:12px;")
         row.addWidget(t)
         row.addStretch()
         self.zoom_val = QLabel(f"{int(self.cfg.zoom * 100)}%")
-        self.zoom_val.setStyleSheet("color:#8FD14F; font-size:12px; font-weight:600;")
+        self.zoom_val.setStyleSheet("color:#C8A76B; font-size:12px; font-weight:600;")
         row.addWidget(self.zoom_val)
         root.addLayout(row)
 
@@ -117,7 +109,7 @@ class SettingsPanel(CardPanel):
         root.addWidget(self.slider)
 
         hint = QLabel("拖动即时预览，松手后自动记住")
-        hint.setStyleSheet("color:#55606E; font-size:11px;")
+        hint.setStyleSheet("color:#8A9085; font-size:11px;")
         root.addWidget(hint)
 
         root.addSpacing(6)
@@ -144,7 +136,7 @@ class SettingsPanel(CardPanel):
         # ---- 品种 ----
         row2 = QHBoxLayout()
         t2 = QLabel("蛐蛐品种")
-        t2.setStyleSheet("color:#E8EDF2; font-size:12px;")
+        t2.setStyleSheet("color:#EEE6D6; font-size:12px;")
         row2.addWidget(t2)
         row2.addStretch()
         self.combo = QComboBox()
@@ -152,7 +144,7 @@ class SettingsPanel(CardPanel):
         for sid in self.db.species_ids():
             sp = self.db.species(sid) or {}
             self.combo.addItem(f"{sp.get('名称', sid)}（{sp.get('稀有度', '')}）", sid)
-        idx = self.combo.findData(self.cfg.species_id)
+        idx = self.combo.findData(self.pet.species_id)
         if idx >= 0:
             self.combo.setCurrentIndex(idx)
         self.combo.currentIndexChanged.connect(self._on_species)
@@ -160,7 +152,7 @@ class SettingsPanel(CardPanel):
         root.addLayout(row2)
 
         hint2 = QLabel("临时入口，后续改为孵化 / 捕捉获得")
-        hint2.setStyleSheet("color:#55606E; font-size:11px;")
+        hint2.setStyleSheet("color:#8A9085; font-size:11px;")
         root.addWidget(hint2)
 
         root.addStretch()
@@ -170,7 +162,7 @@ class SettingsPanel(CardPanel):
         btns = QHBoxLayout()
         btns.setSpacing(8)
         css = (
-            "QPushButton{color:#8B97A6; background:rgba(255,255,255,0.06);"
+            "QPushButton{color:#AAA698; background:rgba(255,255,255,0.06);"
             "border:1px solid rgba(255,255,255,0.12); border-radius:6px; padding:7px; font-size:12px;}"
             "QPushButton:hover{color:#FFFFFF; background:rgba(255,255,255,0.12);}"
         )
@@ -187,11 +179,23 @@ class SettingsPanel(CardPanel):
         btns.addWidget(btn_pet)
         root.addLayout(btns)
 
-        note = QLabel("重置蛐蛐会清空等级与经验，位置与设置保留")
-        note.setStyleSheet("color:#55606E; font-size:11px;")
+        note = QLabel("重置会清空等级、经验及副本进度（含通关与解锁）\n品种、装备、位置与设置保留")
+        note.setStyleSheet("color:#8A9085; font-size:11px;")
         root.addWidget(note)
 
     # ---------- 回调 ----------
+
+    def sync_species(self) -> None:
+        """展示角色当前品种；刷新选项不能触发换种或写档。"""
+        blocked = self.combo.blockSignals(True)
+        try:
+            self.combo.setCurrentIndex(self.combo.findData(self.pet.species_id))
+        finally:
+            self.combo.blockSignals(blocked)
+
+    def show_near(self, anchor) -> None:
+        self.sync_species()
+        super().show_near(anchor)
 
     def _on_zoom(self, v: int) -> None:
         self.zoom_val.setText(f"{v}%")
@@ -215,9 +219,7 @@ class SettingsPanel(CardPanel):
         sid = self.combo.itemData(idx)
         if not sid:
             return
-        self.cfg.species_id = sid
         self.pet.set_species(sid)
-        self.pet.save()
         if self.pet.panel.isVisible():
             self.pet.panel.refresh()
 
@@ -234,5 +236,5 @@ class SettingsPanel(CardPanel):
         self.slider.setValue(100)
         self.cb_bar.setChecked(True)
         self.cb_top.setChecked(True)
-        self.pet.apply_zoom()
+        self.pet.set_zoom(1.0)
         self.pet.apply_flags()

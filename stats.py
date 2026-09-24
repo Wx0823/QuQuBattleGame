@@ -64,14 +64,16 @@ class StatsDB:
 
     def reload(self) -> bool:
         try:
+            self.error = ""
             self._maybe_export()
             with open(JSON_PATH, "r", encoding="utf-8") as f:
-                self.data = json.load(f)
-            self.error = ""
+                candidate = json.load(f)
+            if not isinstance(candidate, dict):
+                raise ValueError("数值表 JSON 必须是对象")
+            self.data = candidate
             return True
         except Exception as e:
-            self.error = str(e)
-            self.data = {}
+            self.error = f"{self.error}; {e}" if self.error else str(e)
             return False
 
     def _maybe_export(self) -> None:
@@ -107,10 +109,14 @@ class StatsDB:
         # JSON 对象的 key 一律是字符串，必须转 str 再查
         return self.data.get("成长", {}).get(str(int(level)), {})
 
+    @property
+    def max_level(self) -> int:
+        return max((int(key) for key in self.data.get('成长', {}) if str(key).isdigit()), default=1)
+
     def exp_need(self, level: int) -> int:
         g = self.growth(level)
         v = g.get("本级升级经验")
-        return int(v) if v is not None else 40 + (level - 1) * 35
+        return max(1, int(v) if v is not None else 40 + (level - 1) * 35)
 
     def move(self, mid):
         return self.data.get("招式", {}).get(mid)

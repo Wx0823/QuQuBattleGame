@@ -1,391 +1,264 @@
-# -*- coding: utf-8 -*-
-"""蛐蛐属性 · 装备面板：属性总览 + 6 部位装备槽 + 方块格子背包 + 穿戴操作。
-
-背包为统一格子视图（不按部位过滤），面板打开期间每秒自动刷新
-（战斗中掉落 1 秒内进格子）。战斗中更换装备：当前战斗结束后生效。
-"""
-
+"""装备面板宿主：布局与交互编排；数据状态、池化格子各自独立。"""
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import (QBrush, QColor, QIcon, QPainter, QPainterPath,
-                           QPen, QPixmap)
-from PySide6.QtWidgets import (QGridLayout, QLabel, QPushButton, QScrollArea,
-                               QVBoxLayout, QWidget)
+from html import escape
+
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (
+    QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
+)
 
 import equipment
+from equipment_viewmodel import EquipmentViewModel
+from equipment_widgets import InventoryGrid, _ui_color, scroll_area, slot_icon_pixmap
 from panel import CardPanel
+from ui_theme import PANEL_CSS, button_css
 from stats import StatsDB, fmt_num
 
 
-def _ui_color(color_hex: str) -> str:
-    """暗色品质（如黑金）在深色面板上不可读 → 自动改用金色描边显示。"""
-    c = QColor(color_hex)
-    lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
-    return "#E8B23A" if lum < 90 else color_hex
-
-
-# ---------- 部位图标（QPainter 手绘，品质色渲染） ----------
-
-_ICON_CACHE: dict = {}
-
-
-def slot_icon_pixmap(slot_name: str, color_hex: str,
-                     equipped: bool = False, size: int = 40) -> QPixmap:
-    """按部位画一枚装备图标。equipped=True 时右上角带金色角标。"""
-    key = (slot_name, color_hex, equipped, size)
-    pix = _ICON_CACHE.get(key)
-    if pix is not None:
-        return pix
-    pix = QPixmap(size, size)
-    pix.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pix)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    c = QColor(color_hex)
-    s = size / 40.0
-
-    def pt(x, y):
-        return QPointF(x * s, y * s)
-
-    pen = QPen(c, 3.0 * s)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    p.setPen(pen)
-    p.setBrush(Qt.BrushStyle.NoBrush)
-
-    name = slot_name or ""
-    if name.startswith("触须"):
-        for sgn in (1, -1):
-            path = QPainterPath()
-            path.moveTo(pt(20, 33))
-            path.quadTo(pt(20 + 12 * sgn, 22), pt(20 + 15 * sgn, 8))
-            p.drawPath(path)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(c))
-            p.drawEllipse(pt(20 + 15 * sgn, 8), 2.2 * s, 2.2 * s)
-            p.setPen(pen)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-    elif name.startswith("牙齿"):
-        p.setBrush(QBrush(c))
-        p.setPen(Qt.PenStyle.NoPen)
-        for x0 in (10, 21):
-            fang = QPainterPath()
-            fang.moveTo(pt(x0, 8))
-            fang.quadTo(pt(x0 + 5, 20), pt(x0 + 4, 32))
-            fang.quadTo(pt(x0 + 1, 22), pt(x0 - 2, 11))
-            fang.closeSubpath()
-            p.drawPath(fang)
-    elif name.startswith("前躯"):
-        p.setBrush(QBrush(QColor(c.red(), c.green(), c.blue(), 70)))
-        p.drawRoundedRect(QRectF(pt(9, 8), pt(22, 25)), 5 * s, 5 * s)
-        p.drawLine(pt(9, 20), pt(31, 20))
-    elif name.startswith("后躯"):
-        path = QPainterPath()
-        path.moveTo(pt(12, 7))
-        path.quadTo(pt(26, 14), pt(24, 24))
-        p.drawPath(path)
-        pen2 = QPen(c, 2.0 * s)
-        pen2.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(pen2)
-        p.drawLine(pt(24, 24), pt(14, 33))
-        p.drawLine(pt(24, 24), pt(30, 30))
-    elif name.startswith("翅膀"):
-        wing = QPainterPath()
-        wing.moveTo(pt(20, 5))
-        wing.quadTo(pt(34, 13), pt(31, 29))
-        wing.quadTo(pt(18, 33), pt(10, 25))
-        wing.quadTo(pt(11, 11), pt(20, 5))
-        p.setBrush(QBrush(QColor(c.red(), c.green(), c.blue(), 80)))
-        p.drawPath(wing)
-        p.drawLine(pt(20, 6), pt(17, 30))
-        p.drawLine(pt(20, 6), pt(26, 28))
-    elif name.startswith("尾巴"):
-        path = QPainterPath()
-        path.moveTo(pt(10, 32))
-        path.quadTo(pt(16, 10), pt(32, 8))
-        p.drawPath(path)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(c))
-        p.drawEllipse(QRectF(pt(30, 4), pt(6, 6)))
-    else:
-        # 未知部位的兜底：圆盾 + 部位首字
-        p.setBrush(QBrush(QColor(c.red(), c.green(), c.blue(), 70)))
-        p.drawEllipse(QRectF(pt(7, 7), pt(26, 26)))
-        p.setPen(QPen(c, 2))
-        p.drawText(QRectF(pt(0, 0), pt(40, 40)),
-                   Qt.AlignmentFlag.AlignCenter, name[:1])
-
-    if equipped:
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor("#F2C14E")))
-        p.drawPolygon([pt(40, 0), pt(40, 10 * s), pt(40 - 10 * s, 0)])
-
-    p.end()
-    _ICON_CACHE[key] = pix
-    return pix
-
-
 class EquipmentPanel(CardPanel):
-    """属性 + 装备槽 + 格子背包。"""
-
-    W, H = 430, 620
-    GRID_COLS = 6
+    W, H = 960, 640
 
     def __init__(self, pet):
-        CardPanel.__init__(self, "蛐蛐属性 · 装备", self.W, self.H)
+        super().__init__("蛐蛐装备", self.W, self.H)
         self.pet = pet
         self.db = StatsDB()
-        self.sel_uid = None
-        self._inv_snapshot = ""
-
+        self.model = EquipmentViewModel(self.db, pet)
+        self.setStyleSheet(PANEL_CSS)
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 14)
-        root.setSpacing(6)
+        root.setContentsMargins(18, 14, 18, 14)
+        root.setSpacing(12)
         self.build_header(root)
-
-        # ---- 属性总览 ----
-        self.lbl_stats = QLabel("")
-        self.lbl_stats.setStyleSheet("color:#E8EDF2; font-size:12px;")
-        root.addWidget(self.lbl_stats)
-        self.lbl_power = QLabel("")
-        self.lbl_power.setStyleSheet("color:#8FD14F; font-size:11px;")
+        self.lbl_power = self._label("", accent=True)
         root.addWidget(self.lbl_power)
+        body = QHBoxLayout()
+        body.setSpacing(14)
+        root.addLayout(body, 1)
 
-        root.addSpacing(4)
-        root.addWidget(self.sep())
-
-        # ---- 装备槽（2 列 × 3 行）----
-        grid = QGridLayout()
-        grid.setSpacing(5)
+        # 左栏独立滚动，配置表新增部位不会挤压背包或操作区。
+        loadout = QWidget()
+        left = QVBoxLayout(loadout)
+        left.setContentsMargins(12, 12, 12, 12)
+        left.addWidget(self._label("属性总览", heading=True))
+        self.lbl_stats = self._label("")
+        left.addWidget(self.lbl_stats)
+        left.addWidget(self.sep())
+        left.addWidget(self._label("当前穿戴", heading=True))
+        self.slot_layout = QVBoxLayout()
+        left.addLayout(self.slot_layout)
         self.slot_btns = {}
-        order = self.db.data.get("_装备部位顺序", [])
-        for k, sid in enumerate(order):
-            conf = self.db.data.get("装备部位", {}).get(sid, {})
-            b = QPushButton()
-            b.setStyleSheet(
-                "QPushButton{text-align:left; padding:5px 8px; font-size:11px;"
-                "color:#E8EDF2; background:rgba(255,255,255,0.06);"
-                "border:1px solid rgba(255,255,255,0.14); border-radius:6px;}"
-                "QPushButton:hover{background:rgba(143,209,79,0.22);}")
-            b.clicked.connect(lambda _=False, s=sid: self._on_slot_click(s))
-            grid.addWidget(b, k // 2, k % 2)
-            self.slot_btns[sid] = b
-        root.addLayout(grid)
+        left.addStretch()
+        self.loadout_area = scroll_area(loadout)
+        body.addWidget(self.loadout_area, 3)
 
-        # ---- 格子背包 ----
-        self.lbl_inv = QLabel("背包（点击格子查看 / 穿戴）")
-        self.lbl_inv.setStyleSheet("color:#8B97A6; font-size:11px;")
-        root.addWidget(self.lbl_inv)
-        self.inv_area = QScrollArea()
-        self.inv_area.setWidgetResizable(True)
-        self.inv_area.setStyleSheet(
-            "QScrollArea{border:1px solid rgba(255,255,255,0.10);"
-            "border-radius:6px; background:#232733;}"
-            "QScrollArea>QWidget>QWidget{background:#232733;}")
-        self.inv_inner = QWidget()
-        self.inv_grid = QGridLayout(self.inv_inner)
-        self.inv_grid.setContentsMargins(6, 6, 6, 6)
-        self.inv_grid.setSpacing(5)
-        self._cells: list = []   # 格子池：只建一次，之后复用（避免重建渲染时序坑）
-        self.inv_area.setWidget(self.inv_inner)
-        self.inv_area.setFixedHeight(230)
-        root.addWidget(self.inv_area)
+        center = QVBoxLayout()
+        center.addWidget(self._label("装备背包", heading=True))
+        filters = QHBoxLayout()
+        self.slot_filter = QComboBox()
+        self.quality_filter = QComboBox()
+        self.sort_filter = QComboBox()
+        self.slot_filter.setAccessibleName("按部位筛选")
+        self.quality_filter.setAccessibleName("按品质筛选")
+        self.sort_filter.setAccessibleName("背包排序")
+        self.sort_filter.addItem("最新获得", "newest")
+        self.sort_filter.addItem("品质优先", "quality")
+        for combo in (self.slot_filter, self.quality_filter, self.sort_filter):
+            filters.addWidget(combo)
+            combo.currentIndexChanged.connect(self._on_filter)
+        center.addLayout(filters)
+        self.lbl_inv = self._label("")
+        center.addWidget(self.lbl_inv)
+        self.inventory_grid = InventoryGrid(self.db)
+        self.inventory_grid.selected.connect(self._on_item)
+        self.inv_area = scroll_area(self.inventory_grid)
+        self.inv_area.setMinimumWidth(338)
+        center.addWidget(self.inv_area, 1)
+        body.addLayout(center, 4)
 
-        # ---- 词条详情 + 操作 ----
-        self.lbl_detail = QLabel("选中格子查看装备词条")
-        self.lbl_detail.setWordWrap(True)
-        self.lbl_detail.setStyleSheet("color:#C9D2DC; font-size:12px;")
-        root.addWidget(self.lbl_detail)
-
-        self.btn_action = QPushButton("装备")
+        right = QVBoxLayout()
+        right.addWidget(self._label("装备详情", heading=True))
+        detail = QWidget()
+        detail_layout = QVBoxLayout(detail)
+        detail_layout.setContentsMargins(12, 12, 12, 12)
+        self.detail_icon = QLabel()
+        self.detail_icon.setFixedHeight(100)
+        self.detail_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        detail_layout.addWidget(self.detail_icon)
+        self.lbl_detail = self._label("")
+        self.lbl_detail.setTextFormat(Qt.TextFormat.RichText)
+        detail_layout.addWidget(self.lbl_detail)
+        detail_layout.addStretch()
+        self.detail_area = scroll_area(detail)
+        right.addWidget(self.detail_area, 1)
+        self.btn_action = QPushButton("选择一件装备")
+        self.btn_action.setMinimumHeight(40)
         self.btn_action.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_action.setStyleSheet(
-            "QPushButton{color:#1E2430; background:rgba(143,209,79,0.9);"
-            "border:none; border-radius:6px; padding:7px; font-size:12px;}"
-            "QPushButton:hover{background:rgba(143,209,79,1.0);}"
-            "QPushButton:disabled{color:#55606E; background:rgba(255,255,255,0.08);}")
+        self.btn_action.setStyleSheet(button_css(primary=True))
         self.btn_action.clicked.connect(self._on_action)
-        self.btn_action.setEnabled(False)
-        root.addWidget(self.btn_action)
-
-        note = QLabel("战斗中掉落 1 秒内自动进包；战斗中更换装备，本场结束后生效")
-        note.setWordWrap(True)
-        note.setStyleSheet("color:#55606E; font-size:10px;")
-        root.addWidget(note)
-
-        # 打开期间自动轮询（战斗中掉落自动进格子）
+        right.addWidget(self.btn_action)
+        body.addLayout(right, 3)
+        root.addWidget(self._label("金色角标表示已穿戴 · 掉落每秒自动刷新 · 战斗中换装，下场战斗生效"))
         self._poll = QTimer(self)
         self._poll.setInterval(1000)
         self._poll.timeout.connect(self._poll_refresh)
+        self._config_snapshot = None
+        self.refresh()
 
-    def showEvent(self, e) -> None:
-        self._poll.start()
-        super().showEvent(e)
+    @staticmethod
+    def _label(text, heading=False, accent=False):
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        if heading:
+            label.setStyleSheet("font-size:14px;font-weight:600;color:#EEE6D6;")
+        elif accent:
+            label.setStyleSheet("font-size:15px;color:#D6B778;")
+        return label
 
-    def hideEvent(self, e) -> None:
-        self._poll.stop()
-        super().hideEvent(e)
+    @property
+    def sel_uid(self):
+        return self.model.selected_uid
 
-    def _poll_refresh(self) -> None:
-        """战斗中掉落 → 背包自动刷新（数据无变化时跳过，避免打断选中）。"""
-        snap = self._inventory_snapshot()
-        if snap != self._inv_snapshot:
-            self.refresh()
-
-    def _inventory_snapshot(self) -> str:
-        inv = equipment._read_inv()
-        return f"{len(inv.get('items', {}))}:{sorted(inv.get('equipped', {}).values())}"
-
-    # ---------- 刷新 ----------
-
-    def refresh(self) -> None:
-        pet = self.pet
-        eff = equipment.effective_stats(
-            self.db, pet.species_id, pet.level, pet.talents)
-        self.lbl_stats.setText(
-            f"血量 {fmt_num(eff.get('hp', 0))}   攻击 {fmt_num(eff.get('atk', 0))}   "
-            f"护甲 {fmt_num(eff.get('arm', 0))}   速度 {fmt_num(eff.get('spd', 0))}   "
-            f"耐力 {fmt_num(eff.get('sta', 0))}")
-        power = (0.4 * eff.get("hp", 0) + 3.0 * eff.get("atk", 0)
-                 + 2.0 * eff.get("arm", 0) + 2.0 * eff.get("spd", 0)
-                 + 2.0 * eff.get("crit", 0) + 1.5 * eff.get("pen", 0)
-                 + 0.5 * eff.get("guts", 0))
-        equipped = equipment.get_equipped()
-        self.lbl_power.setText(
-            f"战力 {fmt_num(round(power))}   ·   已装备 "
-            f"{len(equipped)}/{len(self.db.data.get('_装备部位顺序', []))} 件"
-            + ("   （战斗中：下场生效）" if getattr(pet, "_stage", None) else ""))
-
-        equipped_items = {it["slot"]: it for it in equipment.equipped_items()}
+    def _sync_config(self):
+        data = self.db.data
+        snapshot = repr((data.get('_装备部位顺序'), data.get('装备部位'),
+                         data.get('_装备品质顺序'), data.get('装备品质')))
+        if snapshot == self._config_snapshot:
+            return
+        self._config_snapshot = snapshot
+        order = data.get('_装备部位顺序', [])
         for sid, btn in self.slot_btns.items():
-            conf = self.db.data.get("装备部位", {}).get(sid, {})
-            slot_name = conf.get("名称", sid)
-            it = equipped_items.get(sid)
-            if it:
-                color = _ui_color(equipment.quality_color(self.db, it))
-                btn.setText(f"{slot_name}｜{it.get('名称', '')}")
-                btn.setStyleSheet(
-                    f"QPushButton{{text-align:left; padding:5px 8px; font-size:11px;"
-                    f"color:{color}; background:rgba(255,255,255,0.06);"
-                    f"border:1px solid {color}; border-radius:6px;}}"
-                    f"QPushButton:hover{{background:rgba(143,209,79,0.22);}}")
-            else:
-                btn.setText(f"{slot_name}｜空")
-                btn.setStyleSheet(
-                    "QPushButton{text-align:left; padding:5px 8px; font-size:11px;"
-                    "color:#55606E; background:rgba(255,255,255,0.06);"
-                    "border:1px solid rgba(255,255,255,0.14); border-radius:6px;}"
-                    "QPushButton:hover{background:rgba(143,209,79,0.22);}")
+            btn.hide()
+            self.slot_layout.removeWidget(btn)
+        for sid in order:
+            if sid not in self.slot_btns:
+                btn = QPushButton()
+                btn.setMinimumHeight(46)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda checked=False, s=sid: self._on_slot_click(s))
+                self.slot_btns[sid] = btn
+            self.slot_layout.addWidget(self.slot_btns[sid])
+            self.slot_btns[sid].show()
+        for combo, title, ids, configs in (
+            (self.slot_filter, '全部部位', order, data.get('装备部位', {})),
+            (self.quality_filter, '全部品质', data.get('_装备品质顺序', []), data.get('装备品质', {})),
+        ):
+            selected = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(title, None)
+            for key in ids:
+                combo.addItem(str(configs.get(key, {}).get('名称', key)), key)
+            combo.setCurrentIndex(max(0, combo.findData(selected)))
+            combo.blockSignals(False)
+        self.model.slot_filter = self.slot_filter.currentData()
+        self.model.quality_filter = self.quality_filter.currentData()
 
-        self._refresh_inventory_grid(equipped)
+    def refresh(self):
+        self.model.reload()
+        self._render()
+
+    def _render(self):
+        self._sync_config()
+        eff = self.model.stats()
+        species = self.db.species(self.pet.species_id) or {}
+        self.lbl_power.setText(
+            f"{species.get('名称', '蛐蛐')}  Lv.{self.pet.level}    ·    战力 {fmt_num(round(self.db.power(eff)))}"
+            f"    ·    已穿戴 {len(self.model.worn_items())}/{len(self.db.data.get('_装备部位顺序', []))}"
+            + ('    ·    下场战斗生效' if getattr(self.pet, '_stage', None) else ''))
+        definitions = self.db.data.get('属性定义', {})
+        self.lbl_stats.setText('\n'.join(
+            f"{conf.get('属性名', attr)}   {fmt_num(eff.get(attr, 0))}"
+            for attr, conf in definitions.items() if attr in eff))
+        for sid in self.db.data.get('_装备部位顺序', []):
+            btn = self.slot_btns[sid]
+            name = self.db.data.get('装备部位', {}).get(sid, {}).get('名称', sid)
+            item = self.model.items.get(self.model.equipped.get(sid))
+            color = _ui_color(equipment.quality_color(self.db, item)) if item else '#8B97A6'
+            btn.setText(name + '\n' + (item.get('名称', '') if item else '空槽 · 点击筛选'))
+            btn.setToolTip(btn.text())
+            btn.setIcon(QIcon(slot_icon_pixmap(name, color)))
+            btn.setIconSize(QSize(32, 32))
+            btn.setStyleSheet(f'QPushButton{{text-align:left;color:{color};}}')
+        visible = self.model.visible_items()
+        self.lbl_inv.setText(f"显示 {len(visible)} / {len(self.model.items)} 件" if visible
+                             else ('暂无匹配装备，请调整筛选' if self.model.items else '背包为空，挑战副本获得装备'))
+        self.inventory_grid.render(visible, self.model.equipped, self.sel_uid)
         self._refresh_detail()
-        self._inv_snapshot = self._inventory_snapshot()
 
-    def _refresh_inventory_grid(self, equipped_items: dict) -> None:
-        """统一格子背包：固定 6 列网格（不足补深色空槽），装备格显示部位图标。"""
-        items = sorted(equipment.get_items().values(),
-                       key=lambda x: -int(x.get("uid", 0)))
-        if self.sel_uid and not any(it["uid"] == self.sel_uid for it in items):
-            self.sel_uid = None
-        equipped_uids = set(equipment.get_equipped().values())
-
-        total_slots = max(36, -(-len(items) // self.GRID_COLS) * self.GRID_COLS)
-
-        # 格子池扩容（只建一次，之后复用）
-        while len(self._cells) < total_slots:
-            cell = QPushButton()
-            cell.setFixedSize(48, 48)
-            cell.setCheckable(True)
-            cell.setCursor(Qt.CursorShape.PointingHandCursor)
-            idx = len(self._cells)
-            self.inv_grid.addWidget(cell, idx // self.GRID_COLS,
-                                    idx % self.GRID_COLS)
-            cell.clicked.connect(
-                lambda _=False, c=cell: self._on_item(getattr(c, "_uid", None)))
-            self._cells.append(cell)
-
-        EMPTY_CSS = ("QPushButton{background:#1B2129;"
-                     "border:1px solid rgba(255,255,255,26); border-radius:7px;}"
-                     "QPushButton:hover{background:#232A34;}")
-
-        for k, cell in enumerate(self._cells):
-            if k >= total_slots:
-                cell.setVisible(False)
-                continue
-            cell.setVisible(True)
-            if k < len(items):
-                it = items[k]
-                uid = it["uid"]
-                cell._uid = uid
-                is_eq = uid in equipped_uids
-                color = _ui_color(equipment.quality_color(self.db, it))
-                slot_conf = self.db.data.get("装备部位", {}).get(it["slot"], {})
-                pix = slot_icon_pixmap(slot_conf.get("名称", it["slot"]),
-                                       color, is_eq, 40)
-                cell.setIcon(QIcon(pix))
-                cell.setIconSize(QSize(36, 36))
-                dark = color == "#E8B23A" and it["quality"] == "q07"
-                bg = "#15161C" if dark else "#2A3040"
-                border = f"2px solid {color}" if is_eq else f"1px solid {color}60"
-                cell.setStyleSheet(
-                    f"QPushButton{{background:{bg};"
-                    f"border:{border}; border-radius:7px;}}"
-                    f"QPushButton:hover{{background:#333B4A;}}"
-                    f"QPushButton:checked{{background:#3A4A33;}}")
-                aff = equipment.item_affix_text(self.db, it)
-                cell.setToolTip(
-                    f"<b><font color='{color}'>{it.get('名称', '')}</font></b>"
-                    + ("（装备中）" if is_eq else "")
-                    + "<br>" + "<br>".join(t for t, _u in aff))
-            else:
-                cell._uid = None
-                cell.setIcon(QIcon())
-                cell.setToolTip("")
-                cell.setStyleSheet(EMPTY_CSS)
-            cell.setChecked(self.sel_uid == cell._uid)
-
-    def _refresh_detail(self) -> None:
-        it = equipment.get_items().get(self.sel_uid) if self.sel_uid else None
-        if not it:
-            self.lbl_detail.setText("选中格子查看装备词条")
-            self.btn_action.setEnabled(False)
-            self.btn_action.setText("装备")
+    def _refresh_detail(self):
+        item = self.model.selected
+        self.btn_action.setEnabled(bool(item))
+        if not item:
+            self.detail_icon.clear()
+            self.lbl_detail.setText('选择背包装备查看词条与换装变化。<br><br>点击左侧穿戴槽可查看当前装备。')
+            self.btn_action.setText('选择一件装备')
             return
-        color = _ui_color(equipment.quality_color(self.db, it))
-        aff = equipment.item_affix_text(self.db, it)
-        slot_conf = self.db.data.get("装备部位", {}).get(it["slot"], {})
-        equipped_now = equipment.get_equipped().get(it["slot"]) == it["uid"]
-        lines = []
-        for txt, up in aff:
-            mark = "✦" if up else "·"
-            lines.append(f"{mark} {txt}" + ("（稀有词条）" if up else ""))
-        self.lbl_detail.setText(
-            f"<b><font color='{color}'>{it.get('名称', '')}</font></b>"
-            f"&nbsp;·&nbsp;{slot_conf.get('名称', '')}部位<br>"
-            + "<br>".join(lines))
-        self.btn_action.setEnabled(True)
-        self.btn_action.setText("卸下" if equipped_now else "装备")
+        color = _ui_color(equipment.quality_color(self.db, item))
+        slot_name = self.db.data.get('装备部位', {}).get(item['slot'], {}).get('名称', item['slot'])
+        self.detail_icon.setPixmap(slot_icon_pixmap(slot_name, color, size=96))
+        worn = self.model.equipped.get(item['slot']) == item['uid']
+        lines = [f"<b><font color='{color}'>{escape(item.get('名称', '装备'))}</font></b>",
+                 '已穿戴' if worn else '背包中', '<br><b>装备词条</b>']
+        lines += [escape(('✦ ' if up else '· ') + text + ('（稀有词条）' if up else ''))
+                  for text, up in equipment.item_affix_text(self.db, item)]
+        if not worn:
+            lines.append('<br><b>替换后属性变化</b>')
+            delta = self.model.comparison()
+            for attr, value in delta.items():
+                name = self.db.data.get('属性定义', {}).get(attr, {}).get('属性名', attr)
+                tint = '#D6B778' if value > 0 else '#FF9D91'
+                lines.append(f"<font color='{tint}'>{escape(str(name))} {value:+.1f}</font>")
+            if not delta:
+                lines.append('属性无变化')
+        self.lbl_detail.setText('<br>'.join(lines))
+        self.btn_action.setText('卸下装备' if worn else '替换装备' if self.model.equipped.get(item['slot']) else '穿戴装备')
 
-    # ---------- 操作 ----------
+    def _on_filter(self):
+        self.model.slot_filter = self.slot_filter.currentData()
+        self.model.quality_filter = self.quality_filter.currentData()
+        self.model.sort = self.sort_filter.currentData()
+        self._render()
+        self.inv_area.verticalScrollBar().setValue(0)
 
-    def _on_slot_click(self, sid: str) -> None:
-        """点击装备槽：查看该槽位已穿戴的装备（可卸下）。"""
-        uid = equipment.get_equipped().get(sid)
-        if uid:
-            self.sel_uid = uid
-            self.refresh()
+    def _on_item(self, uid):
+        self.model.selected_uid = uid
+        self._render()
 
-    def _on_item(self, uid: str) -> None:
-        self.sel_uid = uid
+    def _on_slot_click(self, sid):
+        self.model.selected_uid = self.model.equipped.get(sid)
+        self.quality_filter.setCurrentIndex(0)
+        self.slot_filter.setCurrentIndex(self.slot_filter.findData(sid))
         self.refresh()
 
-    def _on_action(self) -> None:
-        it = equipment.get_items().get(self.sel_uid) if self.sel_uid else None
-        if not it:
-            return
-        slot = it["slot"]
-        if equipment.get_equipped().get(slot) == self.sel_uid:
-            equipment.unequip(slot)
-        else:
-            equipment.equip(self.sel_uid)
+    def _on_action(self):
+        self.model.toggle_selected()
         self.refresh()
+
+    def _poll_refresh(self):
+        if self.model.reload():
+            self._render()
+
+    def showEvent(self, event):
+        self.refresh()
+        self._poll.start()
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        self._poll.stop()
+        super().hideEvent(event)
+
+    def show_near(self, anchor):
+        # 使用所在屏幕的可用区域，避免宽面板越过屏幕边缘或任务栏。
+        screen = anchor.screen().availableGeometry()
+        self.setFixedSize(min(self.W, screen.width()), min(self.H, screen.height()))
+        g = anchor.frameGeometry()
+        x = g.left() - self.width() - 12
+        if x < screen.left():
+            x = g.right() + 12
+        x = max(screen.left(), min(x, screen.right() - self.width() + 1))
+        y = max(screen.top(), min(g.top(), screen.bottom() - self.height() + 1))
+        self.move(x, y)
+        self.show()
+        self.raise_()

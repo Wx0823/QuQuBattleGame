@@ -18,6 +18,13 @@ from PySide6.QtWidgets import QApplication
 
 import main as M
 
+# 所有角色/装备/设置写入临时目录，预览不触碰玩家进度。
+import atexit
+from test_support import isolated_game_data
+_test_data = isolated_game_data()
+_test_root = _test_data.__enter__()
+atexit.register(_test_data.__exit__, None, None, None)
+
 # 自检时不需要全局钩子和托盘
 M.Pet._init_hook = lambda self: None
 M.Pet._init_tray = lambda self: None

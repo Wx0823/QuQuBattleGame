@@ -3,28 +3,31 @@
 
 import os
 import sys
-import threading
-import time
+import atexit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QTimer
 from PIL import ImageGrab
 
 import main as M
+from test_support import isolated_game_data
 
-M.SAVE_FILE = os.path.join(HERE, "smoke_save.json")
+_sandbox = isolated_game_data()
+_sandbox.__enter__()
+atexit.register(_sandbox.__exit__, None, None, None)
 
 app = QApplication(sys.argv)
 app.setQuitOnLastWindowClosed(False)
 pet = M.Pet()
+app.aboutToQuit.connect(pet._shutdown)
 pet.place_initial()
 pet.show()
 
 
 def grab() -> None:
-    time.sleep(1.2)
     img = ImageGrab.grab()
     img.save(os.path.join(HERE, "desktop_live.png"))
     w, h = img.size
@@ -33,6 +36,6 @@ def grab() -> None:
     app.quit()
 
 
-threading.Thread(target=grab, daemon=True).start()
+QTimer.singleShot(1200, grab)
 app.exec()
 print("done")

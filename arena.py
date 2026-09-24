@@ -11,7 +11,7 @@ import random
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QScrollArea,
                                QWidget)
 
 from battle import make_fighter
@@ -66,6 +66,7 @@ class ArenaWindow(QWidget):
         p.end()
 
     def closeEvent(self, event) -> None:
+        self.timer.stop()
         self.stage.on_exit()
         super().closeEvent(event)
 
@@ -84,21 +85,21 @@ class ArenaWindow(QWidget):
         self.r_title = QLabel("战斗结束")
         self.r_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.r_title.setStyleSheet(
-            "border:none; color:#E8EDF2; font-size:22px; font-weight:600;")
+            "border:none; color:#EEE6D6; font-size:22px; font-weight:600;")
         root.addWidget(self.r_title)
 
         self.r_detail = QLabel("")
         self.r_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.r_detail.setStyleSheet("border:none; color:#8B97A6; font-size:12px;")
+        self.r_detail.setStyleSheet("border:none; color:#AAA698; font-size:12px;")
         self.r_detail.setWordWrap(True)
         root.addWidget(self.r_detail)
 
         root.addSpacing(8)
         btns = QHBoxLayout()
-        css = ("QPushButton{color:#E8EDF2; background:rgba(143,209,79,0.85);"
+        css = ("QPushButton{color:#EEE6D6; background:rgba(200,167,107,0.85);"
                "border:none; border-radius:6px; padding:8px; font-size:13px;}"
-               "QPushButton:hover{background:rgba(143,209,79,1.0);}"
-               "QPushButton#gray{color:#8B97A6; background:rgba(255,255,255,0.08);}"
+               "QPushButton:hover{background:rgba(200,167,107,1.0);}"
+               "QPushButton#gray{color:#AAA698; background:rgba(255,255,255,0.08);}"
                "QPushButton#gray:hover{background:rgba(255,255,255,0.14);}")
         b_again = QPushButton("再来一场")
         b_again.setStyleSheet(css)
@@ -118,7 +119,7 @@ class ArenaWindow(QWidget):
         w = self.stage.battle.winner
         a, b = self.stage.battle.fighters
         title = "平局" if w is None else ("胜利！" if w == 0 else "战败…")
-        color = "#8FD14F" if w == 0 else ("#F09595" if w == 1 else "#B4B2A9")
+        color = "#C8A76B" if w == 0 else ("#F09595" if w == 1 else "#B4B2A9")
         self.r_title.setText(title)
         self.r_title.setStyleSheet(
             f"border:none; color:{color}; font-size:22px; font-weight:600;")
@@ -136,7 +137,7 @@ class ArenaWindow(QWidget):
         self.result_box.show()
         self.result_box.raise_()
 
-    def _show_dungeon_result(self) -> None:
+    def _show_dungeon_result(self, result=None) -> None:
         res = self.stage.dungeon_result or {}
         first = res.get("first_clear", False)
         self.r_title.setText("首通！" if first else "通关！")
@@ -165,10 +166,10 @@ class ArenaWindow(QWidget):
         self.result_box.raise_()
 
     def _on_again(self) -> None:
-        if self.stage.drun is not None and self._next_diff:
+        if self.stage.drun is not None:
             self.result_box.hide()
             self.stage = BattleStage(
-                self.pet, style="arena", diff_id=self._next_diff,
+                self.pet, style="arena", diff_id=self._next_diff or self.stage.drun.diff_id,
                 cx=380, cy=306, radius=196)
             self.stage.on_diff_clear = self._show_dungeon_result
             self.stage.on_pvp_end = self._show_pvp_result
@@ -190,19 +191,28 @@ class DungeonSelect(CardPanel):
         root.setContentsMargins(18, 14, 18, 16)
         root.setSpacing(6)
         self.build_header(root)
+        # 难度由表扩展，滚动承载选项，避免新增行挤出窗口。
+        options = QWidget()
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setStyleSheet('QScrollArea{border:none;background:#202827;}')
+        options.setStyleSheet('background:#202827;')
+        area.setWidget(options)
+        root.addWidget(area, 1)
+        root = QVBoxLayout(options)
 
-        css = ("QPushButton{text-align:left; color:#E8EDF2;"
+        css = ("QPushButton{text-align:left; color:#EEE6D6;"
                "background:rgba(255,255,255,0.06);"
                "border:1px solid rgba(255,255,255,0.12); border-radius:6px;"
                "padding:7px 10px; font-size:12px;}"
-               "QPushButton:hover{background:rgba(143,209,79,0.28);}"
-               "QPushButton:disabled{color:#55606E; background:rgba(255,255,255,0.03);}")
+               "QPushButton:hover{background:rgba(200,167,107,0.28);}"
+               "QPushButton:disabled{color:#8A9085; background:rgba(255,255,255,0.03);}")
 
         loaded = DungeonRun.load_run(self.db)
         if loaded:
             dr, _hp, _sta = loaded
             b = QPushButton(f"▶ 继续进度：{dr.diff_name()} 第 {dr.floor} 层")
-            b.setStyleSheet(css + "QPushButton{color:#8FD14F;}")
+            b.setStyleSheet(css + "QPushButton{color:#C8A76B;}")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda: self._go(None))
             root.addWidget(b)
@@ -235,7 +245,7 @@ class DungeonSelect(CardPanel):
                       "战败退回上一层重来（新手第 1 层除外）。"
                       "右键蛐蛐可随时撤出副本，进度自动保存。")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color:#55606E; font-size:11px;")
+        hint.setStyleSheet("color:#8A9085; font-size:11px;")
         root.addWidget(hint)
 
     def _go(self, diff_id: str | None) -> None:

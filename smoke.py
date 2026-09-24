@@ -14,12 +14,19 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 import main as M
 
+# 所有角色/装备/设置写入临时目录，预览不触碰玩家进度。
+import atexit
+from test_support import isolated_game_data
+_test_data = isolated_game_data()
+_test_root = _test_data.__enter__()
+atexit.register(_test_data.__exit__, None, None, None)
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 M.LOG_FILE = os.path.join(APP_DIR, "smoke_error.log")
 if os.path.exists(M.LOG_FILE):
     os.remove(M.LOG_FILE)
 
-M.SAVE_FILE = os.path.join(APP_DIR, "smoke_save.json")
+M.SAVE_FILE = str(_test_root / "smoke_save.json")
 
 sys.excepthook = M._excepthook
 app = QApplication(sys.argv)

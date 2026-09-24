@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import random
+import re
 
 # 引擎自有常数（不属于数值策划调参范围的东西）
 HIT_BASE = 85          # 命中基数%，与招式「命中修正」相加
@@ -31,11 +32,12 @@ class Fighter:
     """战斗中的单只蛐蛐：快照属性 + 运行时状态。"""
 
     def __init__(self, name: str, side: int, level: int,
-                 stats: dict, species_id: str = ""):
+                 stats: dict, species_id: str = "", conditional=()):
         self.name = name
         self.side = side          # 0=左(玩家) 1=右(对手)
         self.level = level
         self.species_id = species_id
+        self.conditional = tuple(conditional)
 
         self.hp_max = float(stats.get("hp", 100))
         self.hp = self.hp_max
@@ -46,6 +48,7 @@ class Fighter:
         self.arm = float(stats.get("arm", 0))
         self.spd = float(stats.get("spd", 20))
         self.crit = float(stats.get("crit", 5))
+        self.tough = float(stats.get("tough", 0))
         self.pen = float(stats.get("pen", 0))
         self.guts = float(stats.get("guts", 50))
         self.morale = float(stats.get("morale", 100))
@@ -61,6 +64,23 @@ class Fighter:
     @property
     def alive(self) -> bool:
         return self.hp > 0 and self.morale > 0
+
+    def effective(self, attribute: str) -> float:
+        value = float(getattr(self, attribute))
+        for rule in self.conditional:
+            match = re.fullmatch(r'(hp|sta|morale)([<>])(\d+(?:\.\d+)?)(%?):(\w+)([+*])([\d.]+)', rule.strip())
+            if not match:
+                continue
+            source, op, limit, percent, target, change, amount = match.groups()
+            if target != attribute:
+                continue
+            threshold = float(limit)
+            if percent:
+                threshold *= getattr(self, source+'_max', MORALE_CAP)/100
+            current = getattr(self, source)
+            if (op == '<' and current < threshold) or (op == '>' and current > threshold):
+                value = value*float(amount) if change == '*' else value+float(amount)
+        return value
 
     def has_status(self, sid: str, t: float) -> bool:
         s = self.statuses.get(sid)
@@ -113,6 +133,8 @@ class Battle:
             self.sudden_mult += float(self.db.const("SUDDEN_DEATH_RATE", 0.05)) * dt
 
         for f in self.fighters:
+            if self.over:
+                break
             if f.hp <= 0:
                 continue
             self._tick_status(f, dt, ev)
@@ -135,6 +157,8 @@ class Battle:
         if not self.over and self.t >= float(self.db.const("BATTLE_TIME", 60)):
             self._judge(ev)
 
+        # 表现层先播放本次命中/状态，再播放终局，避免 KO 后又收到攻击动作。
+        ev = [e for e in ev if e['type'] != 'end'] + [e for e in ev if e['type'] == 'end']
         for e in ev:
             e.setdefault("t", self.t)
         return ev
@@ -142,7 +166,7 @@ class Battle:
     # ---------- 内部 ----------
 
     def _interval(self, f: Fighter) -> float:
-        return self.db.attack_interval(f.spd)
+        return self.db.attack_interval(f.effective('spd'))
 
     def _foe(self, f: Fighter) -> Fighter:
         return self.fighters[1 - f.side]
@@ -268,14 +292,14 @@ class Battle:
                        "move": mv.get("名称", mid), "anim": mv.get("动画", "bite")})
             return
 
-        atk_eff = f.atk
+        atk_eff = f.effective('atk')
         if f.has_status("s005", self.t):
             atk_eff *= 1.15       # 士气高涨
         if f.has_status("s006", self.t):
             atk_eff *= 0.80       # 畏缩
 
         crit = (self.rng.uniform(0, 100)
-                < f.crit + float(mv.get("暴击修正", 0)))
+                < max(0, min(100, f.effective('crit') + float(mv.get("暴击修正", 0)) - foe.tough)))
         raw = atk_eff * float(mv.get("伤害系数", 1)) * self.sudden_mult
 
         # 克制表：攻方招式 vs 守方上一次招式（如摔投克格挡、轻咬被格挡压）
@@ -285,7 +309,7 @@ class Battle:
         if crit:
             raw *= float(self.db.const("CRIT_MULT", 1.5))
 
-        arm_eff = foe.arm
+        arm_eff = foe.effective('arm')
         if foe.has_status("s003", self.t):
             arm_eff *= 0.70       # 破防
         dmg = float(self.db.damage_after_armor(raw, arm_eff, f.pen))
@@ -295,6 +319,8 @@ class Battle:
             reflect = dmg * float(self.db.const("BLOCK_REFLECT", 0.3))
             dmg *= (1.0 - float(self.db.const("BLOCK_REDUCE", 0.6)))
             self._lose_hp(f, reflect, ev, kind="reflect")
+            if self.over:
+                return
 
         self._lose_hp(foe, dmg, ev, kind="attack")
         f.dealt += dmg
@@ -350,4 +376,4 @@ def make_fighter(db, side: int, name: str, species_id: str, level: int,
     if extra_stats:
         for k, v in extra_stats.items():
             stats[k] = float(stats.get(k, 0)) + float(v)
-    return Fighter(name, side, level, stats, species_id)
+    return Fighter(name, side, level, stats, species_id, _cond)

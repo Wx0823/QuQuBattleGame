@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import random
+from persistence import write_json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SAVE_PATH = os.path.join(HERE, "data", "dungeon.json")
@@ -133,11 +134,12 @@ class DungeonRun:
                 self.floor += 1
                 self.eidx = 0
                 self._gen_floor()
-                return {"result": "floor_clear", "xp": xp, "bonus": fb}
+                return {"result": "floor_clear", "xp": xp, "bonus": fb,
+                        "cleared_floor": self.floor - 1, "floor": self.floor}
             return {"result": "diff_clear", "xp": xp, "bonus": fb,
                     "first_clear": self.mark_cleared()}
         # 失败：退上一层重来（第 1 层失败本层重来）。
-        # 参与也有经验（40%）——卡关挂机刷级、变强后过关的生态核心
+        # 参与也有经验（60%）——卡关挂机刷级、变强后过关的生态核心
         base = float(self.conf().get("单杀经验", 10))
         xp = round(base * LOSS_XP_RATE * (1.0 + FLOOR_XP_STEP * (self.floor - 1)))
         self.total_xp += xp
@@ -184,12 +186,7 @@ class DungeonRun:
 
     @staticmethod
     def _write_save(data: dict) -> None:
-        os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
-        try:
-            with open(SAVE_PATH, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        write_json(SAVE_PATH, data)
 
     def save(self, player_hp: float, player_sta: float) -> None:
         """保存断点：难度/层/敌序/玩家血耐。"""
@@ -198,6 +195,7 @@ class DungeonRun:
             "diff_id": self.diff_id, "floor": self.floor, "eidx": self.eidx,
             "seed": self.seed, "kills": self.kills, "total_xp": self.total_xp,
             "player_hp": player_hp, "player_sta": player_sta,
+            "enemies": self._floor_enemies, "rng_state": self.rng.getstate(),
         }
         self._write_save(data)
 
@@ -214,10 +212,27 @@ class DungeonRun:
             dr.eidx = int(run["eidx"])
             dr.kills = int(run.get("kills", 0))
             dr.total_xp = int(run.get("total_xp", 0))
-            dr._gen_floor()
+            if not 1 <= dr.floor <= dr.floors or not 0 <= dr.eidx < dr.n_enemies:
+                return None
+            if 'enemies' in run and 'rng_state' in run:
+                enemies = run['enemies']
+                if (len(enemies) != dr.n_enemies or any(
+                        not db.species(it['species_id']) or int(it['level']) < 1 for it in enemies)):
+                    return None
+                dr._floor_enemies = enemies
+                def as_tuple(value):
+                    return tuple(as_tuple(v) for v in value) if isinstance(value, list) else value
+                dr.rng.setstate(as_tuple(run['rng_state']))
+            else:
+                dr._gen_floor()  # 旧版存档不包含名单，保持兼容。
             return dr, float(run.get("player_hp", 0)), float(run.get("player_sta", 0))
         except Exception:
             return None
+
+    @staticmethod
+    def reset_progress() -> None:
+        """重置角色时同时清空断点、通关记录及由此派生的解锁。"""
+        DungeonRun._write_save({})
 
     @staticmethod
     def clear_run() -> None:

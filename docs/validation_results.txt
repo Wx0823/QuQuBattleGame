@@ -1,0 +1,120 @@
+Syntax: 32 Python files PASS
+
+=== battle_checklist.py (exit 0) ===
+== 战斗系统自检 ==
+  PASS 公式·护甲减伤 ARM/(ARM+K)  [100→50.0]
+  PASS 公式·零护甲全额  [→100.0]
+  PASS 公式·保底伤害  [→1.0]
+  PASS 引擎·同种子复现一致  [40 事件]
+  PASS 引擎·150 场全部正常终局  [终局原因 ['击倒', '士气崩溃']]
+  PASS 节奏·力竭是点缀不是常态  [场均力竭 2.1 次]
+  PASS 玩法·击倒结局存在
+  PASS 玩法·士气崩溃可触发
+  PASS 公式·克制查表
+  PASS 玩法·克制命中出现  [150 场共 264 次]
+  PASS 玩法·力竭触发
+  PASS 玩法·低士气迅速败退
+  PASS 玩法·格挡反弹出现过
+  PASS 玩法·突然死亡倍率生效  [t=60s mult=1.75]
+  PASS 玩法·超时判定出平局  [winner=None reason=势均力敌]
+    [smoke] 战斗结束=True 胜者=1 原因=击倒 XP=[6]
+  PASS 表现·竞技场离屏跑完整场
+  -- 副本挂机模拟（4h/日生态校准） --
+  难度   通关耗时   重试   最终等级
+  新手      19.3min     2   Lv.10
+  入门      22.4min     9   Lv.17
+  普通      42.0min    41   Lv.28
+  初级      39.9min    48   Lv.35
+  中级      55.4min   105   Lv.46
+  高级      72.7min   154   Lv.58
+  噩梦      84.3min   206   Lv.70
+  深渊     282.5min   348   Lv.80
+  绝望    1289.5min   751   Lv.80  [未通·最远第19层]
+  真神    1419.1min  2112   Lv.80  [未通·最远第2层]
+  PASS 副本·新手 30 分钟档  [19.3min]
+  PASS 副本·d01-d08 可通关
+  PASS 副本·绝望为长线墙（可达 19 层，通关需场外成长）  [最远第 19 层]
+  PASS 副本·真神为终极天花板（入场即硬墙，不崩即可）  [最远第 2 层]
+  PASS 副本·战败后玩家复活重建
+  PASS 副本·切换模式血量保留
+  PASS 副本·难度耗时递增  [19->22->42->40->55->73->84->283->1289->1419]
+
+== 23/23 通过 ==
+
+
+=== gameplay_checklist.py (exit 0) ===
+test_arena_close_stops_simulation (__main__.GameplayTests.test_arena_close_stops_simulation) ... ok
+test_atomic_write_failures_are_not_swallowed (__main__.GameplayTests.test_atomic_write_failures_are_not_swallowed) ... ok
+test_battle_end_is_last_event (__main__.GameplayTests.test_battle_end_is_last_event) ... ok
+test_battle_settings_do_not_resize_or_mask_field (__main__.GameplayTests.test_battle_settings_do_not_resize_or_mask_field) ... ok
+test_completed_callback_cannot_close_new_dungeon (__main__.GameplayTests.test_completed_callback_cannot_close_new_dungeon) ... ok
+test_conditional_talent_reacts_to_current_hp (__main__.GameplayTests.test_conditional_talent_reacts_to_current_hp) ... ok
+test_dungeon_resume_keeps_roster_and_rng (__main__.GameplayTests.test_dungeon_resume_keeps_roster_and_rng) ... ok
+test_entry_heading_matches_motion_for_both_hosts (__main__.GameplayTests.test_entry_heading_matches_motion_for_both_hosts) ... ok
+test_equipment_snapshot_updates_next_fight (__main__.GameplayTests.test_equipment_snapshot_updates_next_fight) ... ok
+test_exit_during_win_settles_once (__main__.GameplayTests.test_exit_during_win_settles_once) ... ok
+test_failed_atomic_save_keeps_old_file (__main__.GameplayTests.test_failed_atomic_save_keeps_old_file) ... ok
+test_failed_stats_reload_keeps_previous_data (__main__.GameplayTests.test_failed_stats_reload_keeps_previous_data) ... ok
+test_final_boss_loot_callback_and_replay (__main__.GameplayTests.test_final_boss_loot_callback_and_replay) ... ok
+test_floor_clear_message_reports_completed_and_next_floor (__main__.GameplayTests.test_floor_clear_message_reports_completed_and_next_floor) ... ok
+test_full_dungeon_progression_and_exactly_once_rewards (__main__.GameplayTests.test_full_dungeon_progression_and_exactly_once_rewards) ... ok
+test_growth_caps_at_configured_level (__main__.GameplayTests.test_growth_caps_at_configured_level) ... ok
+test_invalid_checkpoint_is_rejected (__main__.GameplayTests.test_invalid_checkpoint_is_rejected) ... ok
+test_lethal_reflection_stops_dead_attacker (__main__.GameplayTests.test_lethal_reflection_stops_dead_attacker) ... ok
+test_loot_visuals_queue_render_and_expire_without_duplicate_rewards (__main__.GameplayTests.test_loot_visuals_queue_render_and_expire_without_duplicate_rewards) ... ok
+test_loss_retreat_revive_and_checkpoint (__main__.GameplayTests.test_loss_retreat_revive_and_checkpoint) ... ok
+test_quit_saves_active_battle_and_stops_timer (__main__.GameplayTests.test_quit_saves_active_battle_and_stops_timer) ... ok
+test_real_desktop_battles_render_and_reward (__main__.GameplayTests.test_real_desktop_battles_render_and_reward) ... ok
+test_reinforcement_does_not_inherit_ko_or_dash (__main__.GameplayTests.test_reinforcement_does_not_inherit_ko_or_dash) ... ok
+test_reset_clears_dungeon_unlocks_and_selection (__main__.GameplayTests.test_reset_clears_dungeon_unlocks_and_selection) ... ok
+test_reset_discards_active_and_pending_battles (__main__.GameplayTests.test_reset_discards_active_and_pending_battles) ... ok
+test_reset_recomputes_level_one_attributes (__main__.GameplayTests.test_reset_recomputes_level_one_attributes) ... ok
+test_stats_fallback_retains_export_warning (__main__.GameplayTests.test_stats_fallback_retains_export_warning) ... ok
+test_toughness_reduces_incoming_crit (__main__.GameplayTests.test_toughness_reduces_incoming_crit) ... ok
+test_zero_drop_and_highest_quality_do_not_lie (__main__.GameplayTests.test_zero_drop_and_highest_quality_do_not_lie) ... ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 2.596s
+
+OK
+
+
+=== species_checklist.py (exit 0) ===
+test_legacy_save_without_species_uses_settings (__main__.SpeciesPersistenceTests.test_legacy_save_without_species_uses_settings) ... ok
+test_programmatic_change_syncs_panel_without_recursive_writes (__main__.SpeciesPersistenceTests.test_programmatic_change_syncs_panel_without_recursive_writes) ... ok
+test_saved_species_wins_over_stale_settings (__main__.SpeciesPersistenceTests.test_saved_species_wins_over_stale_settings) ... ok
+test_ui_switch_is_saved_immediately_and_survives_restart (__main__.SpeciesPersistenceTests.test_ui_switch_is_saved_immediately_and_survives_restart) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.108s
+
+OK
+
+
+=== equipment_ui_checklist.py (exit 0) ===
+test_empty_and_timer (__main__.EquipmentUITests.test_empty_and_timer) ... ok
+test_equipping_comparison_and_removal (__main__.EquipmentUITests.test_equipping_comparison_and_removal) ... ok
+test_filters_and_config_extension (__main__.EquipmentUITests.test_filters_and_config_extension) ... ok
+test_pool_growth_and_pixel_render (__main__.EquipmentUITests.test_pool_growth_and_pixel_render) ... ok
+test_removed_selection_cannot_be_equipped (__main__.EquipmentUITests.test_removed_selection_cannot_be_equipped) ... ok
+test_snapshot_content_and_pet_changes (__main__.EquipmentUITests.test_snapshot_content_and_pet_changes) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.491s
+
+OK
+
+
+=== art_checklist.py (exit 0) ===
+test_all_species_views_and_transparency (__main__.ArtTests.test_all_species_views_and_transparency) ... ok
+test_animation_and_knockout_change_pixels (__main__.ArtTests.test_animation_and_knockout_change_pixels) ... ok
+test_antenna_roots_inside_each_species_head (__main__.ArtTests.test_antenna_roots_inside_each_species_head) ... ok
+test_cache_and_source_slices (__main__.ArtTests.test_cache_and_source_slices) ... ok
+test_icons_all_slots_qualities_and_unknown_fallback (__main__.ArtTests.test_icons_all_slots_qualities_and_unknown_fallback) ... ok
+test_ko_preserves_painted_body (__main__.ArtTests.test_ko_preserves_painted_body) ... ok
+test_painter_state_and_opacity (__main__.ArtTests.test_painter_state_and_opacity) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.224s
+
+OK
