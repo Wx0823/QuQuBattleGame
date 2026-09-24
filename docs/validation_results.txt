@@ -78,7 +78,7 @@ test_toughness_reduces_incoming_crit (__main__.GameplayTests.test_toughness_redu
 test_zero_drop_and_highest_quality_do_not_lie (__main__.GameplayTests.test_zero_drop_and_highest_quality_do_not_lie) ... ok
 
 ----------------------------------------------------------------------
-Ran 33 tests in 2.985s
+Ran 33 tests in 3.069s
 
 OK
 
@@ -90,7 +90,7 @@ test_saved_species_wins_over_stale_settings (__main__.SpeciesPersistenceTests.te
 test_ui_switch_is_saved_immediately_and_survives_restart (__main__.SpeciesPersistenceTests.test_ui_switch_is_saved_immediately_and_survives_restart) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.113s
+Ran 4 tests in 0.121s
 
 OK
 
@@ -110,7 +110,7 @@ test_upgrade_arrow_follows_equipment_changes (__main__.EquipmentUITests.test_upg
 test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot (__main__.EquipmentUITests.test_upgrade_does_not_hide_lost_affix_and_supports_empty_slot) ... ok
 
 ----------------------------------------------------------------------
-Ran 12 tests in 0.796s
+Ran 12 tests in 0.854s
 
 OK
 
@@ -125,6 +125,6 @@ test_ko_preserves_painted_body (__main__.ArtTests.test_ko_preserves_painted_body
 test_painter_state_and_opacity (__main__.ArtTests.test_painter_state_and_opacity) ... ok
 
 ----------------------------------------------------------------------
-Ran 7 tests in 0.355s
+Ran 7 tests in 0.390s
 
 OK
