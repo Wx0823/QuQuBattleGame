@@ -86,6 +86,30 @@ class GameplayTests(unittest.TestCase):
         self.pet._clamp_into_screen()
         self.assertTrue(self.pet.screen().availableGeometry().contains(self.pet.frameGeometry()))
 
+    def test_transparent_frame_erases_old_pixels_in_idle_and_battle(self):
+        from PySide6.QtCore import QRect, Qt
+        from PySide6.QtGui import QColor
+        from types import SimpleNamespace
+        self.pet.set_zoom(1.)
+        frame = QImage(self.pet.size(), QImage.Format.Format_ARGB32_Premultiplied)
+        frame.fill(QColor('magenta'))
+        painter = QPainter(frame)
+        self.pet._paint_frame(painter)
+        painter.end()
+        self.assertEqual(frame.pixelColor(0, 0).alpha(), 0)
+        self.pet._stage = SimpleNamespace(draw=lambda p: p.fillRect(QRect(30, 40, 20, 20), QColor('red')))
+        painter = QPainter(frame)
+        self.pet._paint_frame(painter)
+        painter.end()
+        self.assertEqual(frame.pixelColor(35, 45), QColor('red'))
+        self.pet._stage = SimpleNamespace(draw=lambda p: p.fillRect(QRect(100, 40, 20, 20), QColor('red')))
+        painter = QPainter(frame)
+        self.pet._paint_frame(painter)
+        painter.end()
+        self.pet._stage = None
+        self.assertEqual(frame.pixelColor(35, 45).alpha(), 0)
+        self.assertEqual(frame.pixelColor(105, 45), QColor('red'))
+
     def test_context_menu_refreshes_state_and_routes_actions(self):
         from menu_ui import create_menu
         menu = create_menu(self.pet)

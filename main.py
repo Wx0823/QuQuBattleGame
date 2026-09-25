@@ -552,15 +552,21 @@ class Pet(QWidget):
     # ---------- 绘制 ----------
 
     def paintEvent(self, event) -> None:
-        # 桌面副本进行中：整个窗口让位给战斗舞台
-        if self._stage is not None:
-            p = QPainter(self)
-            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            self._stage.draw(p)
-            p.end()
-            return
         p = QPainter(self)
+        self._paint_frame(p)
+        p.end()
+
+    def _paint_frame(self, p) -> None:
+        # 透明窗口必须替换 alpha；SourceOver 绘制透明色不会擦除旧帧。
+        p.save()
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        p.fillRect(self.rect(), Qt.GlobalColor.transparent)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if self._stage is not None:
+            self._stage.draw(p)
+            p.restore()
+            return
         # 整体下移 TOP_PAD，给顶部飘字留出渲染空间（mask 同步扩过）
         p.translate(0, TOP_PAD * self.zoom)
 
@@ -581,7 +587,7 @@ class Pet(QWidget):
         self._draw_floats(p, f)
         if self.settings.show_bar:
             self._draw_bar(p, f)
-        p.end()
+        p.restore()
 
     def _draw_floats(self, p: QPainter, f: float) -> None:
         size = max(8, min(17, int(10 * f)))
@@ -660,6 +666,7 @@ class Pet(QWidget):
     def moveEvent(self, event) -> None:
         super().moveEvent(event)
         self._place_open_panels()
+        self.update()  # 窗口移动后提交完整透明帧，不等下一次动画 tick。
 
     def _place_open_panels(self):
         from window_layout import place_panel
